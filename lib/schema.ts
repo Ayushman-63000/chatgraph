@@ -1,34 +1,13 @@
-import hospitalitySchemaRaw from "../src/main/json/hospitality.json";
-import type { GraphDelta, GraphEdge, GraphState, GraphVertex, JsonValue } from "./types";
-
-type SchemaProperty = {
-  key: string;
-  value?: unknown;
-  required?: boolean;
-};
-
-type SchemaVertexEntry = {
-  "@key": string;
-  "@value": {
-    properties?: SchemaProperty[];
-  };
-};
-
-type SchemaEdgeEntry = {
-  "@key": string;
-  "@value": {
-    out: string;
-    in: string;
-    properties?: SchemaProperty[];
-  };
-};
-
-type PropertyGraphSchema = {
-  vertices: SchemaVertexEntry[];
-  edges: SchemaEdgeEntry[];
-};
-
-const hospitalitySchema = hospitalitySchemaRaw as PropertyGraphSchema;
+import { getDomain } from "./domains";
+import type {
+  ChatMessage,
+  DomainId,
+  GraphDelta,
+  GraphEdge,
+  GraphState,
+  GraphVertex,
+  JsonValue
+} from "./types";
 
 export type VertexSpec = {
   label: string;
@@ -44,8 +23,13 @@ export type EdgeSpec = {
   properties: Set<string>;
 };
 
-export const vertexSpecs = new Map<string, VertexSpec>(
-  hospitalitySchema.vertices.map((entry) => [
+function specsForDomain(domainId: DomainId): {
+  vertexSpecs: Map<string, VertexSpec>;
+  edgeSpecs: Map<string, EdgeSpec>;
+} {
+  const schema = getDomain(domainId).schema;
+  const vertexSpecs = new Map<string, VertexSpec>(
+    schema.vertices.map((entry) => [
     entry["@key"],
     {
       label: entry["@key"],
@@ -59,39 +43,45 @@ export const vertexSpecs = new Map<string, VertexSpec>(
           .map((prop) => prop.key)
       )
     }
-  ])
-);
-
-export const edgeSpecs = new Map<string, EdgeSpec>(
-  hospitalitySchema.edges.map((entry) => [
+    ])
+  );
+  const edgeSpecs = new Map<string, EdgeSpec>(
+    schema.edges.map((entry) => [
     entry["@key"],
     {
       label: entry["@key"],
-      out: entry["@value"].out,
-      in: entry["@value"].in,
+      out: entry["@value"].out ?? entry["@value"].outV ?? "",
+      in: entry["@value"].in ?? entry["@value"].inV ?? "",
       properties: new Set((entry["@value"].properties ?? []).map((prop) => prop.key))
     }
-  ])
-);
+    ])
+  );
+  return { vertexSpecs, edgeSpecs };
+}
 
-export function emptyGraph(): GraphState {
+export function emptyGraph(domainId: DomainId): GraphState {
+  const domain = getDomain(domainId);
   const date = new Date().toISOString().slice(0, 10);
-  const sessionId = `session:hospitality:${date}`;
+  const person: GraphVertex = {
+    id: domain.root.personId,
+    label: "Person",
+    properties: { name: domain.root.personName }
+  };
+  if (!domain.root.sessionInfrastructure) {
+    return { vertices: { [person.id]: person }, edges: {} };
+  }
+  const sessionId = `session:${domainId}:${date}`;
   const sectionId = `section:${sessionId}:1`;
   return {
     vertices: {
-      "person:expert": {
-        id: "person:expert",
-        label: "Person",
-        properties: { name: "Hospitality expert" }
-      },
+      [person.id]: person,
       [sessionId]: {
         id: sessionId,
         label: "KnowledgeSession",
         properties: {
-          domain: "hospitality",
+          domain: domainId,
           date,
-          objective: "Capture hospitality operating expertise for a comprehensive knowledge base"
+          objective: domain.root.objective ?? ""
         }
       },
       [sectionId]: {
@@ -105,10 +95,10 @@ export function emptyGraph(): GraphState {
       }
     },
     edges: {
-      [`person:expert-hasSession->${sessionId}`]: {
-        id: `person:expert-hasSession->${sessionId}`,
+      [`${person.id}-hasSession->${sessionId}`]: {
+        id: `${person.id}-hasSession->${sessionId}`,
         label: "hasSession",
-        out: "person:expert",
+        out: person.id,
         in: sessionId,
         properties: {}
       },
@@ -123,7 +113,8 @@ export function emptyGraph(): GraphState {
   };
 }
 
-export function schemaReference(): string {
+export function schemaReference(domainId: DomainId): string {
+  const { vertexSpecs, edgeSpecs } = specsForDomain(domainId);
   const vertexLines = [...vertexSpecs.values()]
     .map((spec) => {
       const props = [...spec.properties].sort();
@@ -156,6 +147,14 @@ export function graphSummary(graph: GraphState): string {
   return `Vertices:\n${vertices.join("\n") || "(none)"}\n\nEdges:\n${edges.join("\n") || "(none)"}`;
 }
 
+export function graphMatchesDomain(graph: GraphState, domainId: DomainId): boolean {
+  const session = Object.values(graph.vertices).find(
+    (vertex) => vertex.label === "KnowledgeSession"
+  );
+  if (domainId === "headache") return session === undefined;
+  return session?.properties.domain === domainId;
+}
+
 export function mergeDelta(graph: GraphState, delta: GraphDelta): GraphState {
   const next: GraphState = {
     vertices: { ...graph.vertices },
@@ -182,10 +181,69 @@ export function mergeDelta(graph: GraphState, delta: GraphDelta): GraphState {
   return next;
 }
 
-export function sanitizeDelta(input: unknown, graph: GraphState): {
+export function activeSectionOrder(
+  domainId: DomainId,
+  graph: GraphState,
+  messages: ChatMessage[]
+): number {
+  const sections = getDomain(domainId).sectionMap?.sections ?? [];
+  if (sections.length === 0) return 1;
+  const current = Math.max(
+    1,
+    ...Object.values(graph.vertices)
+      .filter((vertex) => vertex.label === "SessionSection")
+      .map((vertex) => Number(vertex.properties.order ?? 1))
+  );
+  if (messages.filter((message) => message.role === "user").length <= 1) {
+    return current;
+  }
+  let latestUser = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      latestUser = index;
+      break;
+    }
+  }
+  let interviewer = "";
+  for (let index = latestUser - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant") {
+      interviewer = messages[index].content;
+      break;
+    }
+  }
+  if (!interviewer) return current;
+
+  const questionWords = meaningfulWords(interviewer);
+  let bestOrder = current;
+  let bestScore = 0;
+  for (const section of sections) {
+    const reference = [
+      section.title,
+      section.purpose,
+      ...(section.capture_goals ?? [])
+    ].filter(Boolean).join(" ");
+    const score = meaningfulWords(reference).filter((word) => questionWords.includes(word)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestOrder = section.order;
+    }
+  }
+  if (bestScore < 2) return current;
+  return Math.max(current, Math.min(current + 1, bestOrder));
+}
+
+export function sanitizeDelta(
+  input: unknown,
+  graph: GraphState,
+  domainId: DomainId,
+  activeSection = 1
+): {
   delta: GraphDelta;
   warnings: string[];
+  errors: string[];
 } {
+  const domain = getDomain(domainId);
+  const { vertexSpecs, edgeSpecs } = specsForDomain(domainId);
   const warnings: string[] = [];
   const raw = isRecord(input) ? input : {};
   if (!isRecord(input)) {
@@ -195,21 +253,17 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
   const rawEdges = Array.isArray(raw.edges) ? raw.edges : [];
   const vertices: GraphVertex[] = [];
   const ignoredIds = new Set<string>();
-  const existingMaxSection = Math.max(
-    0,
-    ...Object.values(graph.vertices)
-      .filter((vertex) => vertex.label === "SessionSection")
-      .map((vertex) => Number(vertex.properties.order ?? 0))
-  );
-  const emittedLaterSection = rawVertices.some(
-    (item) =>
-      isRecord(item) &&
-      item.label === "SessionSection" &&
-      isRecord(item.properties) &&
-      typeof item.properties.order === "number" &&
-      item.properties.order > 1
-  );
-  const introductionOnly = existingMaxSection <= 1 && !emittedLaterSection;
+  const section = domain.sectionMap?.sections?.find((item) => item.order === activeSection);
+  const sectionLabels = section?.primary_vertex_labels
+    ? new Set([...section.primary_vertex_labels, "SessionSection"])
+    : null;
+  const sectionEdges = section?.edge_patterns
+    ? new Set([
+        ...section.edge_patterns.map((pattern) => pattern.edge),
+        "hasSection",
+        "hasEpisode"
+      ])
+    : null;
   const labelsById = new Map<string, string>(
     Object.values(graph.vertices).map((vertex) => [vertex.id, vertex.label])
   );
@@ -225,16 +279,23 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       warnings.push(`Dropped vertex: missing id or label (id=${JSON.stringify(item.id)}, label=${JSON.stringify(item.label)}).`);
       continue;
     }
-    if (
-      introductionOnly &&
-      !["Person", "KnowledgeSession", "SessionSection", "TranscriptEpisode"].includes(label)
-    ) {
+    if (sectionLabels && !sectionLabels.has(label)) {
+      warnings.push(
+        `Dropped vertex ${id}: ${label} is not allowed in active section ${section?.section_id ?? activeSection}.`
+      );
       ignoredIds.add(id);
       continue;
     }
     const spec = vertexSpecs.get(label);
     if (!spec) {
       warnings.push(`Dropped vertex ${id}: unknown label ${label}.`);
+      continue;
+    }
+    const existingLabel = labelsById.get(id);
+    if (existingLabel && existingLabel !== label) {
+      warnings.push(
+        `Dropped vertex ${id}: existing label ${existingLabel} cannot change to ${label}.`
+      );
       continue;
     }
     if (label === "Person" || label === "KnowledgeSession") {
@@ -244,9 +305,21 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
         continue;
       }
     }
+    const unknownProperties = unknownPropertyNames(item.properties, spec.properties);
+    if (unknownProperties.length) {
+      warnings.push(
+        `Dropped vertex ${id}: unknown properties ${unknownProperties.join(", ")}.`
+      );
+      continue;
+    }
     const properties = filterProperties(item.properties, spec.properties);
     const required = requiredProperties(label, spec.required);
-    const missing = [...required].filter((key) => !(key in properties));
+    const missing = [...required].filter(
+      (key) =>
+        !(key in properties) ||
+        properties[key] === null ||
+        (typeof properties[key] === "string" && properties[key].trim() === "")
+    );
     if (missing.length) {
       warnings.push(`Dropped vertex ${id}: missing required ${missing.join(", ")}.`);
       continue;
@@ -256,16 +329,20 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       warnings.push(`Dropped vertex ${id}: ${typeError}.`);
       continue;
     }
-    if (!/^[a-z0-9][a-z0-9:-]*[a-z0-9]$/.test(id)) {
-      warnings.push(`Dropped vertex ${id}: invalid lowercase slug id.`);
+    const validId =
+      domain.validationProfile === "headache"
+        ? /^[A-Za-z0-9][A-Za-z0-9_:-]*$/.test(id)
+        : /^[a-z0-9][a-z0-9:-]*[a-z0-9]$/.test(id);
+    if (!validId) {
+      warnings.push(`Dropped vertex ${id}: invalid deterministic id.`);
       continue;
     }
     if (id.length > 80) {
       warnings.push(`Dropped vertex ${id}: id exceeds 80 characters.`);
       continue;
     }
-    if (label === "KnowledgeSession" && properties.domain !== "hospitality") {
-      warnings.push(`Dropped vertex ${id}: KnowledgeSession domain must be hospitality.`);
+    if (label === "KnowledgeSession" && properties.domain !== domainId) {
+      warnings.push(`Dropped vertex ${id}: KnowledgeSession domain must be ${domainId}.`);
       continue;
     }
     if (
@@ -278,26 +355,26 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       warnings.push(`Dropped vertex ${id}: SessionSection.order must be an integer from 1 to 7.`);
       continue;
     }
-    if (label === "DecisionRule") {
+    if (domainId === "hospitality" && label === "DecisionRule") {
       const ruleText = typeof properties.ruleText === "string" ? properties.ruleText.trim() : "";
       if (ruleText.length <= 20) {
         warnings.push(`Dropped vertex ${id}: DecisionRule.ruleText must exceed 20 characters.`);
         continue;
       }
     }
-    if (label === "OperatingHeuristic") {
+    if (domainId === "hospitality" && label === "OperatingHeuristic") {
       const heuristic = typeof properties.heuristic === "string" ? properties.heuristic.trim() : "";
       if (heuristic.length <= 10) {
         warnings.push(`Dropped vertex ${id}: OperatingHeuristic.heuristic must exceed 10 characters.`);
         continue;
       }
     }
-    if (label === "CheckInPolicy" || label === "CheckOutPolicy") {
+    if (domainId === "hospitality" && (label === "CheckInPolicy" || label === "CheckOutPolicy")) {
       const session = Object.values(graph.vertices).find(
         (vertex) => vertex.label === "KnowledgeSession"
       );
       const policyKind = label === "CheckInPolicy" ? "checkin" : "checkout";
-      const expectedId = `policy:${policyKind}:${session?.id ?? "session:hospitality:unknown"}`;
+      const expectedId = `policy:${policyKind}:${session?.id ?? `session:${domainId}:unknown`}`;
       const existing = Object.values(graph.vertices).find((vertex) => vertex.label === label);
       if (existing && existing.id !== id) {
         warnings.push(`Dropped vertex ${id}: reuse singleton ${label} id ${existing.id}.`);
@@ -309,6 +386,7 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       }
     }
     if (
+      domainId === "hospitality" &&
       label === "GuestPersona" &&
       Object.values(graph.vertices).some(
         (vertex) =>
@@ -322,6 +400,7 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       continue;
     }
     if (
+      domainId === "hospitality" &&
       label === "GuestSignal" &&
       Object.values(graph.vertices).some(
         (vertex) =>
@@ -334,9 +413,9 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       warnings.push(`Dropped vertex ${id}: reuse existing GuestSignal with the same name.`);
       continue;
     }
-    if (label === "ProvenanceEvidence") {
+    if (domain.validationProfile === "expert" && label === "ProvenanceEvidence") {
       const trace = String(properties.traceText ?? "").trim().toLowerCase();
-      const banned = [
+      const banned = domainId === "hospitality" ? [
         "the expert described their approach",
         "the owner mentioned",
         "hospitality knowledge",
@@ -347,7 +426,7 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
         "unknown",
         "the expert talked about",
         "general hospitality principle"
-      ];
+      ] : ["extracted from interview", "see transcript", "n/a", "not available", "unknown"];
       if (!trace || banned.some((prefix) => trace.startsWith(prefix))) {
         warnings.push(`Dropped vertex ${id}: provenance traceText is empty or generic.`);
         continue;
@@ -388,6 +467,12 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       continue;
     }
     if (ignoredIds.has(out) || ignoredIds.has(incoming)) continue;
+    if (sectionEdges && !sectionEdges.has(label)) {
+      warnings.push(
+        `Dropped edge ${label}: not allowed in active section ${section?.section_id ?? activeSection}.`
+      );
+      continue;
+    }
     if (out === incoming) {
       warnings.push(`Dropped edge ${label}: self-referencing edges are not permitted.`);
       continue;
@@ -404,6 +489,13 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
       continue;
     }
     const id = stringValue(item.id) || `${out}-${label}->${incoming}`;
+    const unknownProperties = unknownPropertyNames(item.properties, spec.properties);
+    if (unknownProperties.length) {
+      warnings.push(
+        `Dropped edge ${id}: unknown properties ${unknownProperties.join(", ")}.`
+      );
+      continue;
+    }
     edges.push({
       id,
       label,
@@ -413,47 +505,84 @@ export function sanitizeDelta(input: unknown, graph: GraphState): {
     });
   }
 
+  const provenanceEdgeLabels = new Set(
+    [...edgeSpecs.values()]
+      .filter((spec) => spec.in === "ProvenanceEvidence")
+      .map((spec) => spec.label)
+  );
   const provenanceTargets = new Set(
     [...Object.values(graph.edges), ...edges]
-      .filter((edge) =>
-        ["supportedBy", "principleSupportedBy", "heuristicSupportedBy"].includes(edge.label)
-      )
+      .filter((edge) => provenanceEdgeLabels.has(edge.label))
       .map((edge) => edge.out)
   );
-  const knowledgeLabels = new Set([
-    "GuestExperiencePrinciple", "ServiceStandard", "GuestSignal", "GuestPersona",
-    "CheckInPolicy", "CheckOutPolicy", "TimingRule", "ServiceFailure", "RecoveryAction",
-    "ExceptionRule", "DecisionRule", "OperatingHeuristic", "LoyaltyDriver",
-    "EmotionalMoment", "ContextualConstraint", "Outcome"
-  ]);
-  const invalidProvenanceIds = new Set<string>();
+  const provenanceExempt = new Set(
+    domain.provenanceSpec?.attachment_rules?.exempt_vertex_labels ?? [
+      "Person",
+      "KnowledgeSession",
+      "SessionSection",
+      "TranscriptEpisode",
+      "ProvenanceEvidence"
+    ]
+  );
+  const expectedProvenanceEdges =
+    domain.provenanceSpec?.attachment_rules?.edge_label_by_vertex ?? {};
+  const seenProvenance = new Set<string>();
   for (const vertex of vertices) {
-    if (knowledgeLabels.has(vertex.label) && !provenanceTargets.has(vertex.id)) {
+    if (
+      !provenanceExempt.has(vertex.label) &&
+      !provenanceTargets.has(vertex.id)
+    ) {
       warnings.push(
         `Review: ${vertex.label} ${vertex.id} has no schema-valid provenance edge.`
       );
     }
+    const attached = edges.filter(
+      (edge) => edge.out === vertex.id && provenanceEdgeLabels.has(edge.label)
+    );
+    const expected = expectedProvenanceEdges[vertex.label];
+    if (
+      expected &&
+      attached.length > 0 &&
+      attached.some((edge) => edge.label !== expected)
+    ) {
+      warnings.push(
+        `Review: ${vertex.label} ${vertex.id} should use provenance edge ${expected}.`
+      );
+    }
     if (vertex.label === "ProvenanceEvidence") {
       const sourceEpisode = String(vertex.properties.sourceEpisode ?? "");
+      const provenanceKey = `${sourceEpisode}\u0000${String(vertex.properties.traceText ?? "").trim().toLowerCase()}`;
+      if (seenProvenance.has(provenanceKey)) {
+        warnings.push(
+          `Review: duplicate provenance for source episode ${sourceEpisode}; reuse one evidence vertex.`
+        );
+      }
+      seenProvenance.add(provenanceKey);
       const sourceExists =
         labelsById.get(sourceEpisode) === "TranscriptEpisode" ||
         graph.vertices[sourceEpisode]?.label === "TranscriptEpisode";
       if (!sourceExists) {
-        warnings.push(`Dropped provenance ${vertex.id}: source episode ${sourceEpisode} does not exist.`);
-        invalidProvenanceIds.add(vertex.id);
+        warnings.push(
+          `Review: Provenance ${vertex.id} references missing source episode ${sourceEpisode}.`
+        );
       }
     }
   }
 
+  if (
+    domain.root.sessionInfrastructure &&
+    !Object.values(graph.vertices).some((vertex) => vertex.label === "KnowledgeSession")
+  ) {
+    warnings.push("Dropped delta: active KnowledgeSession root is missing.");
+  }
+  const errors = warnings.filter((warning) => !warning.startsWith("Review:"));
   return {
     delta: {
-      vertices: vertices.filter((vertex) => !invalidProvenanceIds.has(vertex.id)),
-      edges: edges.filter(
-        (edge) =>
-          !invalidProvenanceIds.has(edge.out) && !invalidProvenanceIds.has(edge.in)
-      )
+      vertices,
+      edges
     },
-    warnings
+    warnings: warnings.filter((warning) => warning.startsWith("Review:")),
+    errors
   };
 }
 
@@ -464,6 +593,11 @@ function filterProperties(input: unknown, allowed: Set<string>): Record<string, 
     if (allowed.has(key) && isJsonValue(value)) out[key] = value;
   }
   return out;
+}
+
+function unknownPropertyNames(input: unknown, allowed: Set<string>): string[] {
+  if (!isRecord(input)) return [];
+  return Object.keys(input).filter((key) => !allowed.has(key));
 }
 
 function stringValue(value: unknown): string {
@@ -519,4 +653,21 @@ function firstTypeError(
     if (!valid) return `${key} must be ${expected}`;
   }
   return null;
+}
+
+const STOP_WORDS = new Set([
+  "about", "after", "again", "also", "and", "are", "before", "being", "business",
+  "could", "does", "from", "have", "hospitality", "into", "most", "other", "should",
+  "that", "their", "them", "then", "there", "these", "they", "this", "through",
+  "what", "when", "where", "which", "with", "would", "your"
+]);
+
+function meaningfulWords(text: string): string[] {
+  return [...new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 3 && !STOP_WORDS.has(word))
+  )];
 }

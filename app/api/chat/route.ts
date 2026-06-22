@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { HOSPITALITY_AGENT_PROMPT } from "@/lib/prompts";
+import { getDomain, isDomainId } from "@/lib/domains";
 import { extractGraphDelta } from "@/lib/server/extract";
+import { graphMatchesDomain } from "@/lib/schema";
 import type { ChatMessage, ChatRequest, GraphDelta } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -26,8 +27,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (!Array.isArray(body.messages) || !body.graph?.vertices || !body.graph?.edges) {
+  if (
+    !isDomainId(body.domainId) ||
+    !Array.isArray(body.messages) ||
+    !body.graph?.vertices ||
+    !body.graph?.edges
+  ) {
     return NextResponse.json({ error: "Invalid chat request." }, { status: 400 });
+  }
+  if (!graphMatchesDomain(body.graph, body.domainId)) {
+    return NextResponse.json(
+      { error: "Session domain does not match graph domain. Reset the session." },
+      { status: 409 }
+    );
   }
 
   const latestUser = [...body.messages].reverse().find((message) => message.role === "user");
@@ -36,7 +48,8 @@ export async function POST(request: Request) {
   }
 
   const openai = new OpenAI({ apiKey });
-  const agentPromise = runAgent(openai, body.messages);
+  const domain = getDomain(body.domainId);
+  const agentPromise = runAgent(openai, body.messages, domain.conversationPrompt);
   const extractorPromise = extractGraphDelta(openai, latestUser.content, body);
   const [agentResult, extractorResult] = await Promise.allSettled([
     agentPromise,
@@ -69,13 +82,17 @@ export async function POST(request: Request) {
   return NextResponse.json({ assistantMessage, delta, warnings });
 }
 
-async function runAgent(openai: OpenAI, messages: ChatMessage[]): Promise<string> {
+async function runAgent(
+  openai: OpenAI,
+  messages: ChatMessage[],
+  systemPrompt: string
+): Promise<string> {
   const normalizedMessages = normalizeOpenAIMessages(messages);
   const response = await openai.chat.completions.create({
     model: process.env.CHATGRAPH_AGENT_MODEL || DEFAULT_AGENT_MODEL,
     max_completion_tokens: 420,
     messages: [
-      { role: "system", content: HOSPITALITY_AGENT_PROMPT },
+      { role: "system", content: systemPrompt },
       ...normalizedMessages.slice(-40).map((message) => ({
         role: message.role as "user" | "assistant",
         content: message.content

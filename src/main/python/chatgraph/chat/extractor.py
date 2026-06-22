@@ -627,7 +627,7 @@ class Extractor:
             f"  {t['speaker']}: {t['text']}" for t in context.as_history()
         ]
         history = "\n".join(history_lines) if history_lines else "  (none)"
-        if self._domain.name in {"hypertension", "hospitality"}:
+        if self._domain.session_infrastructure:
             domain_name = self._domain.name
             session_id = next(
                 (

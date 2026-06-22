@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { HOSPITALITY_AGENT_PROMPT } from "@/lib/prompts";
+import { getDomain, isDomainId } from "@/lib/domains";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const DEFAULT_REALTIME_MODEL = "gpt-realtime-2";
 const DEFAULT_REALTIME_VOICE = "marin";
 
-export async function GET() {
+export async function GET(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -15,6 +15,11 @@ export async function GET() {
       { status: 500 }
     );
   }
+  const domainId = new URL(request.url).searchParams.get("domain");
+  if (!isDomainId(domainId)) {
+    return NextResponse.json({ error: "Invalid domain." }, { status: 400 });
+  }
+  const domain = getDomain(domainId);
 
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
@@ -26,7 +31,7 @@ export async function GET() {
       session: {
         type: "realtime",
         model: process.env.CHATGRAPH_REALTIME_MODEL || DEFAULT_REALTIME_MODEL,
-        instructions: HOSPITALITY_AGENT_PROMPT,
+        instructions: domain.conversationPrompt,
         output_modalities: ["audio"],
         audio: {
           input: {

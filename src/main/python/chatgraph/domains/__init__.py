@@ -1,6 +1,6 @@
 """Domain definitions for chatgraph.
 
-A *domain* bundles four things that need to vary together:
+A *domain* bundles everything that must vary together:
 
 - the typed property-graph schema (a Hydra ``GraphSchema``),
 - the agent's system prompt (the interviewer's persona + which dimensions
@@ -8,6 +8,8 @@ A *domain* bundles four things that need to vary together:
 - the extractor's domain-flavoured prompt intro (the LLM that maps
   utterances into vertex/edge deltas),
 - the opening line spoken to the patient on a fresh session.
+- prompt/schema/supporting-file paths, session-root conventions, participant
+  naming, resume behavior, and deterministic id guidance.
 
 Each domain is a Python subpackage under ``chatgraph.domains`` that
 exposes a module-level ``DOMAIN: Domain`` value. The package's
@@ -53,11 +55,23 @@ class Domain:
     """
 
     name: str
+    display_label: str
     schema_path: Path
+    conversation_prompt_path: Path
+    extractor_prompt_path: Path
+    section_map_path: Path | None
+    validation_rules_path: Path | None
     agent_system_prompt: str
     extractor_prompt_intro: str
     opening_line: str
     description: str
+    participant_label: str
+    session_infrastructure: bool
+    person_id: str
+    person_name: str
+    session_objective: str | None
+    resume_opening: str
+    id_convention: str
 
 
 REGISTRY: dict[str, Domain] = {}

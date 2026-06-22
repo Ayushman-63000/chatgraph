@@ -19,7 +19,7 @@ type LayoutEdge = {
   label: string;
 };
 
-function semanticLabel(vertex: GraphVertex): string {
+function semanticLabel(vertex: GraphVertex, domainLabel: string): string {
   const { label, properties: p } = vertex;
   const preferredKeys = [
     "name",
@@ -42,7 +42,7 @@ function semanticLabel(vertex: GraphVertex): string {
       return value.length > 34 ? value.slice(0, 33) + "\u2026" : value;
     }
   }
-  if (label === "Person") return "Hospitality expert";
+  if (label === "Person") return domainLabel === "headache" ? "Patient" : `${domainLabel} expert`;
   return label;
 }
 
@@ -131,7 +131,13 @@ function computeLayout(
   };
 }
 
-export function GraphView({ graph }: { graph: GraphState }) {
+export function GraphView({
+  graph,
+  domainLabel
+}: {
+  graph: GraphState;
+  domainLabel: string;
+}) {
   const vertexList = Object.values(graph.vertices);
   const edgeList = Object.values(graph.edges);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -277,8 +283,8 @@ export function GraphView({ graph }: { graph: GraphState }) {
   }, [layout, nodePositions]);
 
   const labelMap = useMemo(
-    () => new Map(vertexList.map((v) => [v.id, semanticLabel(v)])),
-    [vertexList]
+    () => new Map(vertexList.map((v) => [v.id, semanticLabel(v, domainLabel)])),
+    [vertexList, domainLabel]
   );
 
   // Build a node position lookup for rendering
@@ -300,7 +306,7 @@ export function GraphView({ graph }: { graph: GraphState }) {
         <svg
           ref={svgRef}
           role="img"
-          aria-label={`Hospitality knowledge graph with ${vertexList.length} vertices and ${edgeList.length} edges`}
+          aria-label={`${domainLabel} knowledge graph with ${vertexList.length} vertices and ${edgeList.length} edges`}
           width={W}
           height={H}
           viewBox={`0 0 ${W} ${H}`}

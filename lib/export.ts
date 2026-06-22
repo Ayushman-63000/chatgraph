@@ -1,26 +1,28 @@
 import type { ChatSession } from "./types";
 
 export function exportTranscriptTxt(session: ChatSession): void {
+  const participant = session.domainId === "headache" ? "patient" : "expert";
   const lines = session.messages.map((message) => {
-    const speaker = message.role === "assistant" ? "interviewer" : "expert";
+    const speaker = message.role === "assistant" ? "interviewer" : participant;
     return `${speaker}: ${message.content}`;
   });
-  downloadText(`hospitality-transcript-${stamp()}.txt`, lines.join("\n\n"));
+  downloadText(`${session.domainId}-transcript-${stamp()}.txt`, lines.join("\n\n"));
 }
 
 export function exportTranscriptJsonl(session: ChatSession): void {
+  const participant = session.domainId === "headache" ? "patient" : "expert";
   const lines = session.messages.map((message) =>
     JSON.stringify({
-      speaker: message.role === "assistant" ? "interviewer" : "expert",
+      speaker: message.role === "assistant" ? "interviewer" : participant,
       text: message.content,
       ts: new Date(message.createdAt).toISOString()
     })
   );
-  downloadText(`hospitality-transcript-${stamp()}.jsonl`, lines.join("\n"));
+  downloadText(`${session.domainId}-transcript-${stamp()}.jsonl`, lines.join("\n"));
 }
 
 export function exportSessionJson(session: ChatSession): void {
-  downloadText(`hospitality-knowledge-session-${stamp()}.json`, JSON.stringify(session, null, 2));
+  downloadText(`${session.domainId}-knowledge-session-${stamp()}.json`, JSON.stringify(session, null, 2));
 }
 
 function downloadText(filename: string, text: string): void {

@@ -7,6 +7,7 @@ import {
   MicOff,
   PhoneCall,
   PhoneOff,
+  Play,
   RotateCcw,
   Send,
   Square,
@@ -14,12 +15,13 @@ import {
   VolumeX
 } from "lucide-react";
 import { GraphView } from "@/components/GraphView";
+import { DOMAIN_OPTIONS, getDomain } from "@/lib/domains";
 import { exportSessionJson, exportTranscriptJsonl, exportTranscriptTxt } from "@/lib/export";
 import { OpenAIRealtimeSession, type RealtimeStatus } from "@/lib/realtime";
 import { mergeDelta } from "@/lib/schema";
 import { clearSession, loadSession, saveSession } from "@/lib/storage";
 import { createSpeechRecognition, speak, speechRecognitionAvailable, stopSpeaking } from "@/lib/speech";
-import type { ChatMessage, ChatResponse, ChatSession } from "@/lib/types";
+import type { ChatMessage, ChatResponse, ChatSession, DomainId } from "@/lib/types";
 
 export default function Home() {
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -32,6 +34,7 @@ export default function Home() {
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition>>(null);
   const realtimeRef = useRef<OpenAIRealtimeSession | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
+  const openingAudioAttemptedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +45,28 @@ export default function Home() {
   useEffect(() => {
     if (session) void saveSession(session);
     sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    const opening = session?.messages[0];
+    if (
+      !session ||
+      !opening ||
+      session.messages.some((message) => message.role === "user") ||
+      !session.settings.autoSpeak ||
+      openingAudioAttemptedRef.current === opening.id
+    ) {
+      return;
+    }
+    openingAudioAttemptedRef.current = opening.id;
+    void speak(opening.content).then((voice) => {
+      if (!voice.ok && voice.error) {
+        setWarnings((current) => [
+          ...current.filter((item) => item !== voice.error),
+          voice.error!
+        ]);
+      }
+    });
   }, [session]);
 
   useEffect(() => () => realtimeRef.current?.stop(), []);
@@ -75,7 +100,8 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: optimistic.messages,
-          graph: optimistic.graph
+          graph: optimistic.graph,
+          domainId: optimistic.domainId
         })
       });
       if (!response.ok) throw new Error(await response.text());
@@ -87,7 +113,12 @@ export default function Home() {
         messages: [...optimistic.messages, data.assistantMessage]
       });
       setWarnings(data.warnings ?? []);
-      if (optimistic.settings.autoSpeak) speak(data.assistantMessage.content);
+      if (optimistic.settings.autoSpeak) {
+        const voice = await speak(data.assistantMessage.content);
+        if (!voice.ok && voice.error) {
+          setWarnings((current) => [...current, voice.error!]);
+        }
+      }
     } catch {
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
@@ -130,7 +161,8 @@ export default function Home() {
         body: JSON.stringify({
           text,
           messages: baseSession.messages,
-          graph: baseSession.graph
+          graph: baseSession.graph,
+          domainId: baseSession.domainId
         })
       });
       if (!response.ok) throw new Error(await response.text());
@@ -186,6 +218,13 @@ export default function Home() {
     });
   }
 
+  async function playMessage(text: string) {
+    const voice = await speak(text);
+    if (!voice.ok && voice.error) {
+      setWarnings((current) => [...current.filter((item) => item !== voice.error), voice.error!]);
+    }
+  }
+
   async function toggleRealtime() {
     if (realtimeStatus !== "idle") {
       realtimeRef.current?.stop();
@@ -197,17 +236,24 @@ export default function Home() {
     setIsListening(false);
     setWarnings([]);
 
-    const realtime = new OpenAIRealtimeSession({
-      onStatus: setRealtimeStatus,
-      onError: (message) => setWarnings([message]),
-      onUserTranscript: (text) => {
-        const next = appendMessage("user", text);
-        if (next) void extractVoiceTurn(text, next);
+    if (!session) return;
+    if (!session.messages.some((message) => message.role === "user")) {
+      await playMessage(session.messages[0]?.content ?? getDomain(session.domainId).openingLine);
+    }
+    const realtime = new OpenAIRealtimeSession(
+      {
+        onStatus: setRealtimeStatus,
+        onError: (message) => setWarnings([message]),
+        onUserTranscript: (text) => {
+          const next = appendMessage("user", text);
+          if (next) void extractVoiceTurn(text, next);
+        },
+        onAssistantTranscript: (text) => {
+          appendMessage("assistant", text);
+        }
       },
-      onAssistantTranscript: (text) => {
-        appendMessage("assistant", text);
-      }
-    });
+      session.domainId
+    );
     realtimeRef.current = realtime;
     await realtime.start();
   }
@@ -218,7 +264,23 @@ export default function Home() {
     stopSpeaking();
     setWarnings([]);
     setInput("");
-    setSession(await clearSession());
+    const next = await clearSession(session?.domainId ?? "headache");
+    openingAudioAttemptedRef.current = next.messages[0].id;
+    setSession(next);
+    if (next.settings.autoSpeak) await playMessage(next.messages[0].content);
+  }
+
+  async function selectDomain(domainId: DomainId) {
+    if (!session || session.messages.some((message) => message.role === "user")) return;
+    realtimeRef.current?.stop();
+    realtimeRef.current = null;
+    stopSpeaking();
+    setWarnings([]);
+    setInput("");
+    const next = await clearSession(domainId);
+    openingAudioAttemptedRef.current = next.messages[0].id;
+    setSession(next);
+    if (next.settings.autoSpeak) await playMessage(next.messages[0].content);
   }
 
   function exportAll() {
@@ -235,6 +297,11 @@ export default function Home() {
       </main>
     );
   }
+  const domain = getDomain(session.domainId);
+  const sessionStarted = session.messages.some((message) => message.role === "user");
+  const activeSection = Object.values(session.graph.vertices)
+    .filter((vertex) => vertex.label === "SessionSection")
+    .sort((a, b) => Number(b.properties.order ?? 0) - Number(a.properties.order ?? 0))[0];
 
   return (
     <main className="app-frame">
@@ -242,10 +309,29 @@ export default function Home() {
         <div className="conversation-pane">
           <header className="topbar">
             <div>
-              <h1>Cognisee</h1>
+              <div className="title-row">
+                <h1>Cognisee</h1>
+                <label className="domain-picker">
+                  <span>Domain</span>
+                  <select
+                    value={session.domainId}
+                    onChange={(event) => void selectDomain(event.target.value as DomainId)}
+                    disabled={sessionStarted || isSending || realtimeStatus !== "idle"}
+                    aria-label="Interview domain"
+                    title={sessionStarted ? "Reset the session before changing domain" : "Interview domain"}
+                  >
+                    {DOMAIN_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <p>
-                Cognisee · hospitality knowledge engineer
+                Cognisee · {domain.roleDescription}
                 {realtimeStatus !== "idle" ? ` · voice ${realtimeStatus}` : ""}
+                {!sessionStarted && realtimeStatus === "idle" ? " · opening audio ready" : ""}
               </p>
             </div>
             <div className="toolbar">
@@ -302,7 +388,20 @@ export default function Home() {
           <div className="message-list">
             {session.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
-                <span>{message.role === "assistant" ? "Cognisee" : "expert"}</span>
+                <div className="message-meta">
+                  <span>{message.role === "assistant" ? "Cognisee" : domain.participantLabel}</span>
+                  {message.role === "assistant" && (
+                    <button
+                      type="button"
+                      className="message-audio"
+                      onClick={() => void playMessage(message.content)}
+                      title="Play this reply"
+                      aria-label="Play this reply"
+                    >
+                      <Play size={13} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
                 <p>{message.content}</p>
               </article>
             ))}
@@ -327,8 +426,8 @@ export default function Home() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Share your hospitality expertise"
-              aria-label="Hospitality expert response"
+              placeholder={domain.composerPlaceholder}
+              aria-label={`${domain.label} ${domain.participantLabel} response`}
               rows={2}
               disabled={isSending}
             />
@@ -346,9 +445,15 @@ export default function Home() {
 
         <aside className="graph-pane">
           <header className="graph-header">
-            <h2>hospitality knowledge graph</h2>
+            <div>
+              <h2>{domain.label} knowledge graph</h2>
+              <p>
+                Schema: {domain.schemaPath}
+                {activeSection ? ` · Section ${activeSection.properties.order}: ${activeSection.properties.title}` : ""}
+              </p>
+            </div>
           </header>
-          <GraphView graph={session.graph} />
+          <GraphView graph={session.graph} domainLabel={domain.label} />
         </aside>
       </section>
     </main>

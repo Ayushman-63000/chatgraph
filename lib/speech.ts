@@ -24,6 +24,7 @@ declare global {
 }
 
 let currentAudio: HTMLAudioElement | null = null;
+let currentAudioUrl: string | null = null;
 
 export function speechRecognitionAvailable(): boolean {
   if (typeof window === "undefined") return false;
@@ -54,27 +55,42 @@ export function createSpeechRecognition(
   return recognition;
 }
 
-export async function speak(text: string): Promise<void> {
-  if (typeof window === "undefined") return;
+export async function speak(text: string): Promise<{ ok: boolean; error?: string }> {
+  if (typeof window === "undefined") return { ok: false, error: "Voice playback is unavailable." };
   try {
     const response = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text })
     });
-    if (!response.ok) return;
+    if (!response.ok) {
+      return { ok: false, error: "Voice playback is unavailable. Transcript remains available." };
+    }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.addEventListener("ended", () => URL.revokeObjectURL(url));
+    audio.addEventListener("ended", () => {
+      URL.revokeObjectURL(url);
+      if (currentAudioUrl === url) {
+        currentAudioUrl = null;
+        currentAudio = null;
+      }
+    });
     if (currentAudio) {
       currentAudio.pause();
       currentAudio = null;
     }
+    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
     currentAudio = audio;
-    void audio.play();
+    currentAudioUrl = url;
+    await audio.play();
+    return { ok: true };
   } catch {
-    // TTS failed silently — user still sees the text.
+    stopSpeaking();
+    return {
+      ok: false,
+      error: "Voice playback was blocked or unavailable. Use the play button to retry."
+    };
   }
 }
 
@@ -82,5 +98,9 @@ export function stopSpeaking(): void {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
+  }
+  if (currentAudioUrl) {
+    URL.revokeObjectURL(currentAudioUrl);
+    currentAudioUrl = null;
   }
 }

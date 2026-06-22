@@ -1,9 +1,11 @@
 import OpenAI from "openai";
+import { getDomain } from "@/lib/domains";
 import {
-  HOSPITALITY_EXTRACTOR_INTRO,
-  HOSPITALITY_SECTION_CATALOG
-} from "@/lib/prompts";
-import { graphSummary, sanitizeDelta, schemaReference } from "@/lib/schema";
+  activeSectionOrder,
+  graphSummary,
+  sanitizeDelta,
+  schemaReference
+} from "@/lib/schema";
 import type { ChatRequest, GraphDelta } from "@/lib/types";
 
 const DEFAULT_EXTRACTOR_MODEL = "gpt-4o-mini";
@@ -18,9 +20,16 @@ export async function extractGraphDelta(
     warnings: ["Extractor did not run."]
   };
   let feedback = "";
+  const sectionOrder = activeSectionOrder(body.domainId, body.graph, body.messages);
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await callExtractor(openai, latestText, body, feedback);
+    const response = await callExtractor(
+      openai,
+      latestText,
+      body,
+      feedback,
+      sectionOrder
+    );
     const toolCalls = response.choices[0]?.message?.tool_calls;
     if (!toolCalls || toolCalls.length === 0) {
       best = {
@@ -51,44 +60,68 @@ export async function extractGraphDelta(
       feedback = "The previous attempt returned invalid JSON. Emit valid JSON using the emit_graph_delta function.";
       continue;
     }
-    const sanitized = sanitizeDelta(rawInput, body.graph);
-    if (sanitized.warnings.length < best.warnings.length) best = sanitized;
-    const hardWarnings = sanitized.warnings.filter(
-      (warning) => !warning.startsWith("Review:")
+    const sanitized = sanitizeDelta(
+      rawInput,
+      body.graph,
+      body.domainId,
+      sectionOrder
     );
-    if (hardWarnings.length === 0) return sanitized;
+    if (sanitized.warnings.length < best.warnings.length) best = sanitized;
+    if (sanitized.errors.length === 0) return sanitized;
     feedback =
-      `The previous graph delta failed validation and was sanitized with these problems:\n` +
-      hardWarnings.join("\n") +
+      `The previous graph delta failed hard validation and was rejected:\n` +
+      sanitized.errors.join("\n") +
       "\n\nRe-emit the entire corrected delta. Valid schema labels and edge directions:\n" +
-      schemaReference();
+      schemaReference(body.domainId);
   }
 
-  return best;
+  console.warn(`Dropped invalid ${body.domainId} graph delta after 3 attempts.`);
+  return {
+    delta: { vertices: [], edges: [] },
+    warnings: [
+      ...best.warnings,
+      "Graph delta failed hard validation after 3 attempts and was not written."
+    ]
+  };
 }
 
 function callExtractor(
   openai: OpenAI,
   latestText: string,
   body: ChatRequest,
-  feedback: string
+  feedback: string,
+  sectionOrder: number
 ) {
+  const domain = getDomain(body.domainId);
+  const sections = domain.sectionMap?.sections ?? [];
+  const activeSection = sections.find((section) => section.order === sectionOrder);
+  const sectionCatalog = sections.length
+    ? sections
+        .map(
+          (section) =>
+            `${section.order}. ${section.section_type ?? section.section_id ?? "section"} — ${section.title ?? ""}`
+        )
+        .join("\n")
+    : "(This domain follows the patient's narrative and has no fixed section catalog.)";
   return openai.chat.completions.create({
     model: process.env.CHATGRAPH_EXTRACTOR_MODEL || DEFAULT_EXTRACTOR_MODEL,
     max_completion_tokens: 2200,
     messages: [
       {
         role: "system",
-        content: `${HOSPITALITY_EXTRACTOR_INTRO}\n\n${schemaReference()}`
+        content: `${domain.extractorPrompt}\n\n${schemaReference(body.domainId)}`
       },
       {
         role: "user",
         content:
           `Session metadata:\n${extractionMetadata(body)}\n\n` +
-          `Section catalog:\n${HOSPITALITY_SECTION_CATALOG.map((section) =>
-            `${section.order}. ${section.sectionType} — ${section.title}`
-          ).join("\n")}\n\n` +
-          `Latest expert utterance:\n${latestText}\n\n` +
+          `Active section (authoritative for this turn):\n` +
+          `${activeSection?.section_id ?? sectionOrder}. ${activeSection?.section_type ?? "narrative"} — ${activeSection?.title ?? ""}\n` +
+          `Allowed vertex labels: ${(activeSection?.primary_vertex_labels ?? []).join(", ") || "schema-driven"}\n` +
+          `Allowed edge labels: ${(activeSection?.edge_patterns ?? []).map((pattern) => pattern.edge).join(", ") || "schema-driven"}\n` +
+          `${activeSection?.extractor_instruction ?? ""}\n\n` +
+          `Section catalog:\n${sectionCatalog}\n\n` +
+          `Latest ${domain.participantLabel} utterance:\n${latestText}\n\n` +
           `Conversation window:\n${body.messages
             .slice(-8)
             .map((message) => `${message.role}: ${message.content}`)
@@ -102,7 +135,7 @@ function callExtractor(
         type: "function",
         function: {
           name: "emit_graph_delta",
-          description: "Emit the graph delta captured from the latest hospitality expert utterance.",
+          description: `Emit the ${body.domainId} graph delta captured from the latest ${domain.participantLabel} utterance.`,
           parameters: {
             type: "object",
             properties: {
@@ -146,9 +179,11 @@ function extractionMetadata(body: ChatRequest): string {
   const session = Object.values(body.graph.vertices).find(
     (vertex) => vertex.label === "KnowledgeSession"
   );
-  const sessionId = session?.id ?? `session:hospitality:${new Date().toISOString().slice(0, 10)}`;
-  const expertTurns = body.messages.filter((message) => message.role === "user").length;
-  const episodeId = `ep:${sessionId}:${String(expertTurns).padStart(2, "0")}`;
+  const sessionId =
+    session?.id ??
+    `session:${body.domainId}:${new Date().toISOString().slice(0, 10)}`;
+  const participantTurns = body.messages.filter((message) => message.role === "user").length;
+  const episodeId = `ep:${sessionId}:${String(participantTurns).padStart(2, "0")}`;
   const sections = Object.values(body.graph.vertices)
     .filter((vertex) => vertex.label === "SessionSection")
     .sort((a, b) => Number(a.properties.order ?? 0) - Number(b.properties.order ?? 0))
@@ -158,6 +193,6 @@ function extractionMetadata(body: ChatRequest): string {
     `session_id: ${sessionId}`,
     `episode_id: ${episodeId}`,
     `known_sections: ${sections || "(none)"}`,
-    `expert_turn_number: ${expertTurns}`
+    `participant_turn_number: ${participantTurns}`
   ].join("\n");
 }

@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { isDomainId } from "@/lib/domains";
+import { graphMatchesDomain } from "@/lib/schema";
 import { extractGraphDelta } from "@/lib/server/extract";
 import type { ChatRequest } from "@/lib/types";
 
@@ -27,8 +29,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (!body.text?.trim() || !Array.isArray(body.messages) || !body.graph?.vertices) {
+  if (
+    !isDomainId(body.domainId) ||
+    !body.text?.trim() ||
+    !Array.isArray(body.messages) ||
+    !body.graph?.vertices
+  ) {
     return NextResponse.json({ error: "Invalid extraction request." }, { status: 400 });
+  }
+  if (!graphMatchesDomain(body.graph, body.domainId)) {
+    return NextResponse.json(
+      { error: "Session domain does not match graph domain. Reset the session." },
+      { status: 409 }
+    );
   }
 
   const openai = new OpenAI({ apiKey });

@@ -32,7 +32,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -107,6 +108,36 @@ h2 {
   font-size: 14px;
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.domain-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.domain-picker select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 30px 0 10px;
+  background: var(--surface);
+  color: var(--ink);
+  text-transform: lowercase;
+}
+
+.domain-picker select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -159,8 +190,38 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1;
-  margin-bottom: 8px;
   text-transform: uppercase;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.message-audio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -7px -8px -5px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.message-audio:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.message-audio:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 1px;
 }
 
 .message p {
@@ -231,6 +292,14 @@ h2 {
   min-height: calc(100dvh - 48px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.graph-header p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .graph-shell {
@@ -334,6 +403,12 @@ h2 {
   .toolbar {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .message {

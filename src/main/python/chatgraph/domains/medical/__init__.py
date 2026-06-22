@@ -7,6 +7,7 @@ Importing this module registers the domain in
 from pathlib import Path
 
 from chatgraph.domains import Domain, register
+from chatgraph.domains.medical import agent_prompt, extractor_prompt
 from chatgraph.domains.medical.agent_prompt import (
     OPENING_LINE,
     SYSTEM_PROMPT as AGENT_SYSTEM_PROMPT,
@@ -30,7 +31,12 @@ _SCHEMA_PATH = (
 
 DOMAIN = Domain(
     name="medical",
+    display_label="headache",
     schema_path=_SCHEMA_PATH,
+    conversation_prompt_path=Path(agent_prompt.__file__).resolve(),
+    extractor_prompt_path=Path(extractor_prompt.__file__).resolve(),
+    section_map_path=None,
+    validation_rules_path=None,
     agent_system_prompt=AGENT_SYSTEM_PROMPT,
     extractor_prompt_intro=EXTRACTOR_PROMPT_INTRO,
     opening_line=OPENING_LINE,
@@ -39,6 +45,15 @@ DOMAIN = Domain(
         "classification, attack phases, triggers, alleviating factors, "
         "red flags, family history, and functional impact."
     ),
+    participant_label="patient",
+    session_infrastructure=False,
+    person_id="Person:patient",
+    person_name="patient",
+    session_objective=None,
+    resume_opening=(
+        "Welcome back. What's been happening with your headaches since we last spoke?"
+    ),
+    id_convention="Headache:{slug}; vocabulary Label:{value-slug}",
 )
 
 
