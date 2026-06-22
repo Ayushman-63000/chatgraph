@@ -21,40 +21,67 @@ type LayoutEdge = {
 
 function semanticLabel(vertex: GraphVertex): string {
   const { label, properties: p } = vertex;
-  if (label === "Person") return "Patient";
-  const v = p.value;
-  if (typeof v === "string" && v.length > 0) return v;
-  if (typeof v === "number") return String(v);
-  if (label === "Headache" && typeof p.description === "string") return p.description;
-  if (label === "FamilyHistory") {
-    const parts = [p.relation, p.condition].filter((x): x is string => typeof x === "string");
-    return parts.length ? parts.join(": ") : "Family History";
+  const preferredKeys = [
+    "name",
+    "title",
+    "ruleText",
+    "heuristic",
+    "standardText",
+    "interpretation",
+    "constraintType",
+    "description",
+    "outcomeType",
+    "verbatimText",
+    "traceText",
+    "sectionType",
+    "domain"
+  ];
+  for (const key of preferredKeys) {
+    const value = p[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value.length > 34 ? value.slice(0, 33) + "\u2026" : value;
+    }
   }
-  if (label === "Comorbidity" && typeof p.condition === "string") return p.condition;
-  if (label === "Concept" && typeof p.label === "string") return p.label;
-  if (label === "Comment" && typeof p.description === "string")
-    return p.description.length > 28 ? p.description.slice(0, 27) + "\u2026" : p.description;
-  if (label === "Diagnosis" && typeof p.value === "string") return p.value;
+  if (label === "Person") return "Hospitality expert";
   return label;
 }
 
 function radius(label: string): number {
-  if (label === "Person") return 18;
-  if (label === "Headache") return 16;
-  if (["Comment", "Concept", "HeadacheClassification", "Diagnosis", "PainCharacter"].includes(label)) return 14;
+  if (label === "KnowledgeSession") return 19;
+  if (label === "Person" || label === "SessionSection") return 17;
+  if (["DecisionRule", "GuestExperiencePrinciple", "ServiceFailure"].includes(label)) return 15;
   return 12;
 }
 
 function color(label: string): string {
-  if (label === "Person") return "#0f766e";
-  if (label === "Headache") return "#b2462e";
-  if (label === "HeadacheClassification") return "#e6a817";
-  if (label === "Comment" || label === "Concept") return "#7c3aed";
-  return "#6b5ce7";
+  if (["Person", "KnowledgeSession", "SessionSection", "TranscriptEpisode"].includes(label)) {
+    return "#0f766e";
+  }
+  if (label === "ProvenanceEvidence") return "#64748b";
+  if (["DecisionRule", "OperatingHeuristic", "TimingRule", "ExceptionRule"].includes(label)) {
+    return "#7c3aed";
+  }
+  if (["ContextualConstraint", "LoyaltyDriver", "EmotionalMoment", "Outcome"].includes(label)) {
+    return "#b45309";
+  }
+  if (["CheckInPolicy", "CheckOutPolicy", "ServiceStandard"].includes(label)) {
+    return "#0369a1";
+  }
+  if (["GuestPersona", "GuestSignal"].includes(label)) return "#be3b4b";
+  if (["ServiceFailure", "RecoveryAction"].includes(label)) return "#c2410c";
+  return "#be3b4b";
 }
 
 const W = 720;
 const H = 520;
+
+function stableOffset(id: string, salt: number): number {
+  let hash = salt;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = (hash * 31 + id.charCodeAt(index)) | 0;
+  }
+  return ((Math.abs(hash) % 1000) / 1000 - 0.5) * 80;
+}
 
 function computeLayout(
   vertices: GraphVertex[],
@@ -65,8 +92,8 @@ function computeLayout(
   const simNodes: (LayoutNode & { vx: number; vy: number })[] = vertices.map((v) => ({
     id: v.id,
     label: v.label,
-    x: W / 2 + (Math.random() - 0.5) * 40,
-    y: H / 2 + (Math.random() - 0.5) * 40,
+    x: W / 2 + stableOffset(v.id, 17),
+    y: H / 2 + stableOffset(v.id, 43),
     vx: 0,
     vy: 0,
   }));
@@ -272,6 +299,8 @@ export function GraphView({ graph }: { graph: GraphState }) {
       <div className="graph-canvas">
         <svg
           ref={svgRef}
+          role="img"
+          aria-label={`Hospitality knowledge graph with ${vertexList.length} vertices and ${edgeList.length} edges`}
           width={W}
           height={H}
           viewBox={`0 0 ${W} ${H}`}
@@ -322,11 +351,12 @@ export function GraphView({ graph }: { graph: GraphState }) {
               const pos = posMap.get(node.id) ?? { x: node.x, y: node.y };
               const r = radius(node.label);
               const lbl = labelMap.get(node.id) ?? node.label;
-              const short = lbl.length > 12 ? lbl.slice(0, 11) + "\u2026" : lbl;
+              const short = lbl.length > 18 ? lbl.slice(0, 17) + "\u2026" : lbl;
               const c = color(node.label);
 
               return (
                 <g key={node.id} style={{ cursor: "pointer" }}>
+                  <title>{`${node.label}: ${lbl}`}</title>
                   <circle cx={pos.x} cy={pos.y} r={r} fill={c} stroke={c} strokeOpacity={0.25} strokeWidth={5} />
                   <circle cx={pos.x} cy={pos.y} r={r - 1} fill={c} stroke={c} strokeWidth={1.5} />
                   <foreignObject x={pos.x - 36} y={pos.y + r + 2} width={72} height={16}>

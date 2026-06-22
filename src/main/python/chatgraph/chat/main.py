@@ -96,6 +96,7 @@ class Coordinator:
         audio_out: AudioOutput,
         extractor: Extractor | None = None,
         graph_writer: GremlinWriter | None = None,
+        domain_name: str = "medical",
     ) -> None:
         self._agent = agent
         self._tts = tts
@@ -109,6 +110,7 @@ class Coordinator:
         # anaphora resolution.
         self._extractor = extractor
         self._graph_writer = graph_writer
+        self._domain_name = domain_name
         self._rolling = RollingContext()
 
         # Agent state and the in-flight task driving it.
@@ -178,6 +180,13 @@ class Coordinator:
         state (currently: whether the patient has signaled they're done).
         """
         if self._rolling.session_done:
+            if self._domain_name in {"hypertension", "hospitality"}:
+                return (
+                    f"The expert has indicated the {self._domain_name} knowledge "
+                    "session is complete. Do not ask another interview "
+                    "question. Briefly acknowledge them unless they resume "
+                    "substantive content."
+                )
             return (
                 "The patient has indicated they are done discussing "
                 "their headaches for now. Do NOT ask another clinical "
@@ -237,20 +246,25 @@ class Coordinator:
         ts_start = self._patient_turn_start or (_now() - t0)
         ts_end = _now() - t0
         self._patient_turn_start = None
+        participant = (
+            "expert"
+            if self._domain_name in {"hypertension", "hospitality"}
+            else "patient"
+        )
         self._transcript.write(
             Utterance(
-                speaker="patient",
+                speaker=participant,
                 text=text,
                 ts_start=ts_start,
                 ts_end=ts_end,
             )
         )
         self._conversation.add_user(text)
-        print(f"\npatient: {text}")
+        print(f"\n{participant}: {text}")
 
         # Phase 2: kick off graph extraction in the background. Don't
         # block the conversation; the agent reply path keeps running.
-        self._rolling.add("patient", text)
+        self._rolling.add(participant, text)
         if self._extractor is not None and self._graph_writer is not None:
             asyncio.create_task(self._extract_and_write(text))
 
@@ -425,30 +439,55 @@ class Coordinator:
 
         Returns a hardcoded fallback if the LLM call fails for any reason.
         """
-        fallback = (
-            "Welcome back. What's been happening with your headaches "
-            "since we last spoke?"
-        )
+        if self._domain_name == "hypertension":
+            fallback = (
+                "Welcome back, Doctor. What would you like to add or "
+                "refine in the hypertension knowledge base?"
+            )
+        elif self._domain_name == "hospitality":
+            fallback = (
+                "Welcome back. What would you like to add or refine in "
+                "the hospitality knowledge base?"
+            )
+        else:
+            fallback = (
+                "Welcome back. What's been happening with your headaches "
+                "since we last spoke?"
+            )
         if graph is None or len(graph.vertices) == 0:
             return fallback
         summary = self._summarize_whole_graph(graph)
-        opening_system_prompt = (
-            "You are about to resume a clinical interview about a "
-            "patient's headaches. A property graph of what we already "
-            "know is shown below. Your task: produce ONE short, focused "
-            "follow-up question that would extend this graph in a "
-            "useful direction -- prefer dimensions of the headache that "
-            "are NOT yet represented (e.g. quality if there's no "
-            "Quality vertex on the current Headache, location if no "
-            "BodyLocation, etc.). Reply with the question only -- no "
-            "preamble, no 'welcome back', no apologies. One or two "
-            "sentences."
-        )
-        user_prompt = (
-            f"Graph so far:\n{summary}\n\n"
-            "Produce one short follow-up question that would extend "
-            "what we know about this patient's headaches."
-        )
+        if self._domain_name in {"hypertension", "hospitality"}:
+            opening_system_prompt = (
+                f"Resume a structured {self._domain_name} knowledge interview "
+                "with a senior expert. Using the graph below, ask ONE "
+                "short question that continues the seven-part interview "
+                "without repeating captured knowledge. Reply with the "
+                "question only."
+            )
+            user_prompt = (
+                f"Graph so far:\n{summary}\n\n"
+                "Produce one short follow-up question that extends the "
+                f"{self._domain_name} expert knowledge base."
+            )
+        else:
+            opening_system_prompt = (
+                "You are about to resume a clinical interview about a "
+                "patient's headaches. A property graph of what we already "
+                "know is shown below. Your task: produce ONE short, focused "
+                "follow-up question that would extend this graph in a "
+                "useful direction -- prefer dimensions of the headache that "
+                "are NOT yet represented (e.g. quality if there's no "
+                "Quality vertex on the current Headache, location if no "
+                "BodyLocation, etc.). Reply with the question only -- no "
+                "preamble, no 'welcome back', no apologies. One or two "
+                "sentences."
+            )
+            user_prompt = (
+                f"Graph so far:\n{summary}\n\n"
+                "Produce one short follow-up question that would extend "
+                "what we know about this patient's headaches."
+            )
         try:
             question = await self._agent.complete(
                 user_prompt, system=opening_system_prompt
@@ -675,7 +714,11 @@ def _split_sentences_final(text: str) -> list[str]:
     return sentences
 
 
-async def _ensure_person(graph_writer: GremlinWriter, coord: "Coordinator") -> None:
+async def _ensure_person(
+    graph_writer: GremlinWriter,
+    coord: "Coordinator",
+    domain_name: str = "medical",
+) -> None:
     """Make sure a Person vertex exists and record its id in
     RollingContext.
 
@@ -697,11 +740,154 @@ async def _ensure_person(graph_writer: GremlinWriter, coord: "Coordinator") -> N
         existing_persons = [
             v for v in graph.vertices.values() if v.label.value == "Person"
         ]
-        if existing_persons:
+        existing_sessions = [
+            v for v in graph.vertices.values()
+            if v.label.value == "KnowledgeSession"
+        ]
+        expert_domains = {"hypertension", "hospitality"}
+        if existing_persons and (
+            domain_name not in expert_domains or existing_sessions
+        ):
             pid = existing_persons[0].id.value
             coord._rolling.person_id = pid  # noqa: SLF001
             log.info("Person vertex discovered: %s", pid)
             return
+
+    if domain_name in {"hypertension", "hospitality"}:
+        from datetime import date
+
+        existing_vertices = (
+            list(graph.vertices.values()) if graph is not None else []
+        )
+        person = next(
+            (v for v in existing_vertices if v.label.value == "Person"),
+            None,
+        )
+        session = next(
+            (
+                v for v in existing_vertices
+                if v.label.value == "KnowledgeSession"
+            ),
+            None,
+        )
+        section = next(
+            (
+                v for v in existing_vertices
+                if v.label.value == "SessionSection"
+            ),
+            None,
+        )
+        today = date.today().isoformat()
+        person_id = person.id.value if person else "person:expert"
+        session_id = (
+            session.id.value
+            if session
+            else f"session:{domain_name}:{today}"
+        )
+        section_id = (
+            section.id.value
+            if section
+            else f"section:{session_id}:1"
+        )
+
+        vertices = {}
+        if person is None:
+            pid = core.LiteralString(person_id)
+            person = pg.Vertex(
+                label=pg.VertexLabel("Person"),
+                id=pid,
+                properties=FrozenDict({
+                    pg.PropertyKey("name"): core.LiteralString(
+                        (
+                            "Hypertension expert"
+                            if domain_name == "hypertension"
+                            else "Hospitality expert"
+                        )
+                    )
+                }),
+            )
+            vertices[pid] = person
+        if session is None:
+            sid = core.LiteralString(session_id)
+            session = pg.Vertex(
+                label=pg.VertexLabel("KnowledgeSession"),
+                id=sid,
+                properties=FrozenDict({
+                    pg.PropertyKey("domain"): core.LiteralString(
+                        domain_name
+                    ),
+                    pg.PropertyKey("date"): core.LiteralString(today),
+                    pg.PropertyKey("objective"): core.LiteralString(
+                        (
+                            "Capture senior-clinician hypertension expertise"
+                            if domain_name == "hypertension"
+                            else "Capture hospitality operating expertise"
+                        )
+                    ),
+                }),
+            )
+            vertices[sid] = session
+        if section is None:
+            secid = core.LiteralString(section_id)
+            section = pg.Vertex(
+                label=pg.VertexLabel("SessionSection"),
+                id=secid,
+                properties=FrozenDict({
+                    pg.PropertyKey("sectionType"): core.LiteralString(
+                        "introduction"
+                    ),
+                    pg.PropertyKey("order"): core.LiteralInteger(
+                        core.IntegerValueInt32(1)
+                    ),
+                    pg.PropertyKey("title"): core.LiteralString(
+                        "Introduction"
+                    ),
+                }),
+            )
+            vertices[secid] = section
+
+        edges = {}
+        known_edge_labels = (
+            {e.label.value for e in graph.edges.values()}
+            if graph is not None else set()
+        )
+        if "hasSession" not in known_edge_labels:
+            eid = core.LiteralString(
+                f"{person_id}-hasSession->{session_id}"
+            )
+            edges[eid] = pg.Edge(
+                label=pg.EdgeLabel("hasSession"),
+                id=eid,
+                out=core.LiteralString(person_id),
+                in_=core.LiteralString(session_id),
+                properties=FrozenDict({}),
+            )
+        if "hasSection" not in known_edge_labels:
+            eid = core.LiteralString(
+                f"{session_id}-hasSection->{section_id}"
+            )
+            edges[eid] = pg.Edge(
+                label=pg.EdgeLabel("hasSection"),
+                id=eid,
+                out=core.LiteralString(session_id),
+                in_=core.LiteralString(section_id),
+                properties=FrozenDict({}),
+            )
+
+        delta = pg.Graph(
+            vertices=FrozenDict(vertices),
+            edges=FrozenDict(edges),
+        )
+        graph_writer.submit(delta)
+        coord._rolling.person_id = person_id  # noqa: SLF001
+        coord._rolling.register_vertices([person, session, section])  # noqa: SLF001
+        log.info(
+            "%s session roots ready: %s, %s",
+            domain_name.capitalize(),
+            person_id,
+            session_id,
+        )
+        return
 
     # No existing Person; create one.
     person_id = "Person:patient"
@@ -832,6 +1018,7 @@ async def run() -> int:
                 agent, tts, transcript, audio_out,
                 extractor=extractor,
                 graph_writer=graph_writer,
+                domain_name=domain.name,
             )
             vad = VAD()
             t0 = _now()
@@ -846,7 +1033,7 @@ async def run() -> int:
             # The id is recorded in RollingContext so the extractor uses
             # it as the source of every new `reports` edge.
             if graph_writer.connected:
-                await _ensure_person(graph_writer, coord)
+                await _ensure_person(graph_writer, coord, domain.name)
 
             # If a prior session left data in the graph, resume from it.
             existing = await graph_writer.load_graph() if graph_writer.connected else None

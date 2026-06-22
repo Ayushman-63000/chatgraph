@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { MEDICAL_AGENT_PROMPT } from "@/lib/prompts";
+import { HOSPITALITY_AGENT_PROMPT } from "@/lib/prompts";
 import { extractGraphDelta } from "@/lib/server/extract";
 import type { ChatMessage, ChatRequest, GraphDelta } from "@/lib/types";
 
@@ -75,14 +75,15 @@ async function runAgent(openai: OpenAI, messages: ChatMessage[]): Promise<string
     model: process.env.CHATGRAPH_AGENT_MODEL || DEFAULT_AGENT_MODEL,
     max_completion_tokens: 420,
     messages: [
-      { role: "system", content: MEDICAL_AGENT_PROMPT },
-      ...normalizedMessages.slice(-14).map((message) => ({
+      { role: "system", content: HOSPITALITY_AGENT_PROMPT },
+      ...normalizedMessages.slice(-40).map((message) => ({
         role: message.role as "user" | "assistant",
         content: message.content
       }))
     ]
   });
-  return response.choices[0].message.content?.trim() || "I hear you. Could you tell me a little more?";
+  const text = response.choices[0].message.content?.trim();
+  return enforceOneQuestion(text || "I hear you. Could you tell me a little more?");
 }
 
 function normalizeOpenAIMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -90,4 +91,10 @@ function normalizeOpenAIMessages(messages: ChatMessage[]): ChatMessage[] {
   const firstUserIndex = nonEmpty.findIndex((message) => message.role === "user");
   if (firstUserIndex < 0) return [];
   return nonEmpty.slice(firstUserIndex);
+}
+
+function enforceOneQuestion(text: string): string {
+  const firstQuestion = text.indexOf("?");
+  if (firstQuestion < 0) return text;
+  return text.slice(0, firstQuestion + 1).trim();
 }

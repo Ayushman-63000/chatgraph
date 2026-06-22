@@ -208,6 +208,7 @@ class RollingContext:
     # Person root) without falsely rejecting them as dangling. See
     # chatgraph.chat.validation for the full rationale.
     vertex_labels: dict = field(default_factory=dict)
+    utterance_sequence: int = 0
 
     BUCKET_LABELS = (
         "HeadacheTriggers", "AlleviatingFactors",
@@ -224,6 +225,8 @@ class RollingContext:
 
     def add(self, speaker: str, text: str) -> None:
         self.window.append({"speaker": speaker, "text": text})
+        if speaker in {"patient", "expert"}:
+            self.utterance_sequence += 1
 
     def as_history(self) -> list[dict]:
         return list(self.window)
@@ -624,6 +627,31 @@ class Extractor:
             f"  {t['speaker']}: {t['text']}" for t in context.as_history()
         ]
         history = "\n".join(history_lines) if history_lines else "  (none)"
+        if self._domain.name in {"hypertension", "hospitality"}:
+            domain_name = self._domain.name
+            session_id = next(
+                (
+                    vid for vid, label in context.vertex_labels.items()
+                    if label == "KnowledgeSession"
+                ),
+                f"session:{domain_name}:unknown",
+            )
+            episode_id = (
+                f"ep:{session_id}:{max(context.utterance_sequence, 1):02d}"
+            )
+            sections = sorted(
+                vid for vid, label in context.vertex_labels.items()
+                if label == "SessionSection"
+            )
+            return (
+                f"session_id: {session_id}\n"
+                f"episode_id: {episode_id}\n"
+                f"known_section_ids: {sections or ['(none)']}\n\n"
+                f"Recent turns (oldest first):\n{history}\n\n"
+                f"Known vertex ids by label:\n{context.vertex_labels}\n\n"
+                f"Latest expert utterance:\n  {utterance}"
+            )
+
         current = context.current_headache_id or "(none open)"
         known = context.known_headaches_summary()
         person = context.person_id or "(not yet set)"

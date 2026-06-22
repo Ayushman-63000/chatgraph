@@ -2,25 +2,25 @@ import type { ChatSession } from "./types";
 
 export function exportTranscriptTxt(session: ChatSession): void {
   const lines = session.messages.map((message) => {
-    const speaker = message.role === "assistant" ? "agent" : "patient";
+    const speaker = message.role === "assistant" ? "interviewer" : "expert";
     return `${speaker}: ${message.content}`;
   });
-  downloadText(`chatgraph-${stamp()}.txt`, lines.join("\n\n"));
+  downloadText(`hospitality-transcript-${stamp()}.txt`, lines.join("\n\n"));
 }
 
 export function exportTranscriptJsonl(session: ChatSession): void {
   const lines = session.messages.map((message) =>
     JSON.stringify({
-      speaker: message.role === "assistant" ? "agent" : "patient",
+      speaker: message.role === "assistant" ? "interviewer" : "expert",
       text: message.content,
       ts: new Date(message.createdAt).toISOString()
     })
   );
-  downloadText(`chatgraph-${stamp()}.jsonl`, lines.join("\n"));
+  downloadText(`hospitality-transcript-${stamp()}.jsonl`, lines.join("\n"));
 }
 
 export function exportSessionJson(session: ChatSession): void {
-  downloadText(`chatgraph-${stamp()}.json`, JSON.stringify(session, null, 2));
+  downloadText(`hospitality-knowledge-session-${stamp()}.json`, JSON.stringify(session, null, 2));
 }
 
 function downloadText(filename: string, text: string): void {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MEDICAL_AGENT_PROMPT } from "@/lib/prompts";
+import { HOSPITALITY_AGENT_PROMPT } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ export async function GET() {
       session: {
         type: "realtime",
         model: process.env.CHATGRAPH_REALTIME_MODEL || DEFAULT_REALTIME_MODEL,
-        instructions: MEDICAL_AGENT_PROMPT,
+        instructions: HOSPITALITY_AGENT_PROMPT,
         output_modalities: ["audio"],
         audio: {
           input: {

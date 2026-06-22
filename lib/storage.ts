@@ -1,8 +1,8 @@
 import { emptyGraph } from "./schema";
 import type { ChatSession } from "./types";
-import { OPENING_LINE } from "./prompts";
+import { HOSPITALITY_OPENING_LINE } from "./prompts";
 
-const DB_NAME = "chatgraph-browser";
+const DB_NAME = "cognisee-hospitality-browser";
 const DB_VERSION = 1;
 const STORE_NAME = "sessions";
 const SESSION_KEY = "default";
@@ -13,7 +13,7 @@ export function defaultSession(): ChatSession {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: OPENING_LINE,
+        content: HOSPITALITY_OPENING_LINE,
         createdAt: Date.now()
       }
     ],

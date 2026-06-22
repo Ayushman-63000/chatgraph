@@ -1,5 +1,8 @@
 import OpenAI from "openai";
-import { MEDICAL_EXTRACTOR_INTRO } from "@/lib/prompts";
+import {
+  HOSPITALITY_EXTRACTOR_INTRO,
+  HOSPITALITY_SECTION_CATALOG
+} from "@/lib/prompts";
 import { graphSummary, sanitizeDelta, schemaReference } from "@/lib/schema";
 import type { ChatRequest, GraphDelta } from "@/lib/types";
 
@@ -50,10 +53,13 @@ export async function extractGraphDelta(
     }
     const sanitized = sanitizeDelta(rawInput, body.graph);
     if (sanitized.warnings.length < best.warnings.length) best = sanitized;
-    if (sanitized.warnings.length === 0) return sanitized;
+    const hardWarnings = sanitized.warnings.filter(
+      (warning) => !warning.startsWith("Review:")
+    );
+    if (hardWarnings.length === 0) return sanitized;
     feedback =
       `The previous graph delta failed validation and was sanitized with these problems:\n` +
-      sanitized.warnings.join("\n") +
+      hardWarnings.join("\n") +
       "\n\nRe-emit the entire corrected delta. Valid schema labels and edge directions:\n" +
       schemaReference();
   }
@@ -69,16 +75,20 @@ function callExtractor(
 ) {
   return openai.chat.completions.create({
     model: process.env.CHATGRAPH_EXTRACTOR_MODEL || DEFAULT_EXTRACTOR_MODEL,
-    max_completion_tokens: 1200,
+    max_completion_tokens: 2200,
     messages: [
       {
         role: "system",
-        content: `${MEDICAL_EXTRACTOR_INTRO}\n\n${schemaReference()}`
+        content: `${HOSPITALITY_EXTRACTOR_INTRO}\n\n${schemaReference()}`
       },
       {
         role: "user",
         content:
-          `Latest patient utterance:\n${latestText}\n\n` +
+          `Session metadata:\n${extractionMetadata(body)}\n\n` +
+          `Section catalog:\n${HOSPITALITY_SECTION_CATALOG.map((section) =>
+            `${section.order}. ${section.sectionType} — ${section.title}`
+          ).join("\n")}\n\n` +
+          `Latest expert utterance:\n${latestText}\n\n` +
           `Conversation window:\n${body.messages
             .slice(-8)
             .map((message) => `${message.role}: ${message.content}`)
@@ -92,7 +102,7 @@ function callExtractor(
         type: "function",
         function: {
           name: "emit_graph_delta",
-          description: "Emit the new graph delta captured from the latest patient utterance.",
+          description: "Emit the graph delta captured from the latest hospitality expert utterance.",
           parameters: {
             type: "object",
             properties: {
@@ -130,4 +140,24 @@ function callExtractor(
     ],
     tool_choice: { type: "function", function: { name: "emit_graph_delta" } }
   });
+}
+
+function extractionMetadata(body: ChatRequest): string {
+  const session = Object.values(body.graph.vertices).find(
+    (vertex) => vertex.label === "KnowledgeSession"
+  );
+  const sessionId = session?.id ?? `session:hospitality:${new Date().toISOString().slice(0, 10)}`;
+  const expertTurns = body.messages.filter((message) => message.role === "user").length;
+  const episodeId = `ep:${sessionId}:${String(expertTurns).padStart(2, "0")}`;
+  const sections = Object.values(body.graph.vertices)
+    .filter((vertex) => vertex.label === "SessionSection")
+    .sort((a, b) => Number(a.properties.order ?? 0) - Number(b.properties.order ?? 0))
+    .map((vertex) => `${vertex.id} (${vertex.properties.sectionType})`)
+    .join(", ");
+  return [
+    `session_id: ${sessionId}`,
+    `episode_id: ${episodeId}`,
+    `known_sections: ${sections || "(none)"}`,
+    `expert_turn_number: ${expertTurns}`
+  ].join("\n");
 }

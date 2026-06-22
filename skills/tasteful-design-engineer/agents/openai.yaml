@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tasteful Design Engineer"
+  short_description: "Build distinctive, polished frontend experiences"
+  default_prompt: "Use $tasteful-design-engineer to redesign this interface, add purposeful motion, and verify it in a browser."

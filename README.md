@@ -7,10 +7,10 @@ words about some topic in a specified *domain* with an LLM-driven assistant,
 while a second LLM agent extracts a property
 graph of what was said, vertex by vertex and edge by edge, into a live
 graph database that you can watch update during the
-conversation in a tool like [gdotv](https://www.gdotv.com/). The first
-shipped domain (`medical`) is focused on headache
-disorders; the architecture is domain-neutral and a new domain is a
-self-contained subpackage (schema + prompts + opening line).
+conversation in a tool like [gdotv](https://www.gdotv.com/). Shipped
+domains cover the original headache interview (`medical`), a
+seven-part senior-clinician hypertension knowledge interview
+(`hypertension`), and hospitality-owner expertise (`hospitality`).
 
 ## Status
 
@@ -247,6 +247,15 @@ Currently shipped:
   Covers ICHD-3 classification, attack phases, triggers, alleviating
   factors, red flags, family history, and functional impact. See
   `docs/medical-schema.md` for a written walkthrough of the clinical model.
+- **`hypertension`** — Cognisee-led interview with a senior doctor.
+  Captures explicit knowledge, workflows, tacit expertise, case reasoning,
+  decision rules, contextual constraints, outcomes, and provenance using
+  the specifications in `hypertension/`.
+- **`hospitality`** — Cognisee-led interview with a senior hospitality
+  business owner. Captures guest-experience principles, arrival/departure
+  policies, recovery playbooks, decision rules, operating heuristics,
+  loyalty drivers, contextual constraints, outcomes, and provenance using
+  the specifications in `hospitality/`.
 
 The first positional argument to `chatgraph` selects the domain.
 

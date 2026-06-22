@@ -11,9 +11,9 @@ A voice-driven knowledge-elicitation demo. A subject speaks in their
 own words about some topic in a chosen *domain*; an LLM-driven
 assistant conducts an interview in real time; a second LLM extracts a
 typed property graph of what was said, vertex by vertex and edge by
-edge, into a live TinkerPop Gremlin Server. The first shipped domain
-(`medical`) interviews a patient about headache disorders; the
-architecture is domain-neutral.
+edge, into a live TinkerPop Gremlin Server. Shipped domains include the
+patient-facing headache interview (`medical`) and senior-clinician
+hypertension knowledge capture (`hypertension`).
 
 ## Where code lives
 
@@ -25,8 +25,7 @@ projects (Hydra, HydraPop, the Hydra Python dist packages).
   graph writer, coordinator/CLI. The asyncio orchestration core.
 - `src/main/python/chatgraph/domains/<name>/` — one self-contained
   subpackage per interview domain (schema builder, agent prompt,
-  extractor prompt, opening line). `medical` is the only shipped
-  domain so far.
+  extractor prompt, opening line).
 - `src/main/python/chatgraph/schema/build.py` — CLI dispatcher
   (`chatgraph-build-schema <domain>`) that regenerates committed
   schema JSON from a domain's `schema_build.py`.

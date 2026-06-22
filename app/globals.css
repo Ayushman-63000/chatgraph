@@ -46,7 +46,7 @@ button:disabled {
 }
 
 .app-frame {
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px;
 }
 
@@ -69,8 +69,8 @@ button:disabled {
 
 .conversation-pane {
   display: grid;
-  grid-template-rows: auto minmax(360px, calc(100vh - 230px)) auto auto;
-  min-height: calc(100vh - 48px);
+  grid-template-rows: auto minmax(360px, calc(100dvh - 230px)) auto auto;
+  min-height: calc(100dvh - 48px);
 }
 
 .topbar,
@@ -130,6 +130,13 @@ h2 {
 .send-button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.icon-button:focus-visible,
+.send-button:focus-visible,
+.composer textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 2px;
 }
 
 .message-list {
@@ -202,7 +209,6 @@ h2 {
   padding: 13px 14px;
   color: var(--ink);
   background: var(--surface);
-  outline: none;
 }
 
 .composer textarea:focus {
@@ -222,7 +228,7 @@ h2 {
 }
 
 .graph-pane {
-  min-height: calc(100vh - 48px);
+  min-height: calc(100dvh - 48px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -290,7 +296,7 @@ h2 {
 }
 
 .loading-panel {
-  min-height: calc(100vh - 48px);
+  min-height: calc(100dvh - 48px);
   display: grid;
   place-items: center;
   color: var(--muted);

@@ -1,0 +1,172 @@
+{
+  "domain": "hypertension",
+  "version": "1.0",
+  "description": "Runtime configuration for the Cognisee hypertension knowledge ingestion pipeline. Controls the conversational agent, LLM extractor, chunking strategy, graph writer, validation, and retry behaviour. Read by build.py at session startup.",
+
+  "session": {
+    "domain": "hypertension",
+    "schema_file": "schema.json",
+    "section_map_file": "section_map.json",
+    "provenance_spec_file": "provenance_spec.json",
+    "validation_rules_file": "validation_rules.json",
+    "session_id_convention": "session:hypertension:{YYYY-MM-DD}",
+    "session_id_example": "session:hypertension:2026-06-18",
+    "log_level": "info"
+  },
+
+  "conversational_agent": {
+    "description": "The agent that conducts the live expert interview. Uses the session prompt from agent_prompt.py. Schema-aware so it can steer questions toward underrepresented vertex types.",
+    "model": "claude-sonnet",
+    "model_version": "latest",
+    "temperature": 0.7,
+    "max_tokens": 1024,
+    "schema_aware_prompting": true,
+    "schema_awareness_description": "At the start of each section, the agent is given the primary_vertex_labels and capture_goals from section_map.json to bias its questions toward uncovered areas.",
+    "opening_line": "Hi Doctor, I will conduct your knowledge session today on hypertension. The purpose of today's session is to extract explicit knowledge, tacit expertise, workflows, heuristics, rules, case reasoning, and system-level insights to build a comprehensive hypertension knowledge base.",
+    "deep_dive_rule": "At the end of each section, ask: 'Before we move on, would you like to go deeper into anything from this section?' If yes, explore deeply. Ask 'Is it okay to move to the next question?' before proceeding.",
+    "closing_line": "Thank you, Doctor. I will now summarize what we covered. Is there anything you would like to add, correct, or expand before we conclude?"
+  },
+
+  "llm_extractor": {
+    "description": "The background LLM that converts each conversational turn into a Hydra graph delta. Runs after every expert utterance. Uses tool_use mode to emit structured vertex/edge JSON.",
+    "model": "claude-haiku",
+    "model_version": "latest",
+    "temperature": 0.0,
+    "max_tokens": 4096,
+    "tool_use": true,
+    "tool_name": "emit_graph_delta",
+    "tool_description": "Emit a Hydra graph delta containing new vertices and edges extracted from the current conversational turn.",
+    "schema_injection": "full",
+    "schema_injection_description": "The full schema.json is injected into the extractor system prompt at session start. The extractor is schema-constrained — it may only emit vertex and edge labels declared in schema.json.",
+    "section_map_injection": "current_section_only",
+    "section_map_injection_description": "Only the current section's entry from section_map.json is injected per turn, including primary_vertex_labels, edge_patterns, id_seeds, and extractor_instruction.",
+    "provenance_injection": true,
+    "provenance_injection_description": "provenance_spec.json attachment rules and id_convention are injected so the extractor always emits provenance with every knowledge vertex.",
+    "vertex_id_cache_injection": true,
+    "vertex_id_cache_description": "The known vertex ID cache (label → list of IDs) is injected per turn so the extractor can reuse existing vertex IDs instead of creating duplicates.",
+    "max_retries": 3,
+    "retry_on_validation_failure": true,
+    "retry_prompt": "The previous delta failed validation with the following errors: {validation_errors}. Please correct the delta and resubmit. Do not change any values that were not flagged as errors.",
+    "drop_delta_after_max_retries": true,
+    "drop_delta_log_level": "error"
+  },
+
+  "chunking": {
+    "description": "Controls how the conversation stream is segmented before being sent to the LLM extractor.",
+    "strategy": "utterance",
+    "strategy_description": "One extractor call per expert utterance. The extractor receives the full expert turn as a single chunk.",
+    "context_window": {
+      "include_last_n_turns": 3,
+      "description": "The last 3 conversational turns (agent + expert) are included as context so the extractor can resolve coreferences (e.g. 'it', 'that drug', 'this case')."
+    },
+    "include_known_vertices": true,
+    "include_known_vertices_description": "The vertex ID cache is appended to each extractor call so the extractor can reference and reuse previously extracted entities.",
+    "skip_interviewer_turns": true,
+    "skip_interviewer_turns_description": "Interviewer/agent utterances are not sent for extraction — only expert turns trigger extraction."
+  },
+
+  "graph_writer": {
+    "description": "Writes validated deltas to the Gremlin-compatible property graph database.",
+    "backend": "gremlin",
+    "endpoint": "ws://localhost:8182/gremlin",
+    "id_type": "string",
+    "write_mode": "upsert",
+    "write_mode_description": "Vertices are upserted by ID. If a vertex with the given ID already exists, its properties are merged. Edges are always inserted as new (edges do not upsert — duplicate edges between the same vertex pair are allowed for multi-provenance scenarios).",
+    "serialized_writes": true,
+    "serialized_writes_description": "Writes are serialized (not concurrent) to prevent race conditions on vertex ID cache updates.",
+    "transaction_per_delta": true,
+    "transaction_per_delta_description": "Each delta is wrapped in a single Gremlin transaction. If any vertex or edge write fails, the entire delta is rolled back.",
+    "connection_timeout_ms": 5000,
+    "retry_on_connection_failure": true,
+    "max_connection_retries": 3
+  },
+
+  "validation": {
+    "description": "Validation is run on every delta before it is written to the graph. Failed deltas are returned to the extractor for correction.",
+    "validator": "hydra_graph_schema",
+    "schema_file": "schema.json",
+    "validation_rules_file": "validation_rules.json",
+    "validate_before_write": true,
+    "incremental_validation": true,
+    "incremental_validation_description": "Validation is aware of previously written vertices. The vertex ID cache is used to check that edge endpoints exist across prior deltas, not just within the current delta.",
+    "dangling_edge_policy": "reject_and_retry",
+    "unknown_label_policy": "reject_and_retry",
+    "missing_required_property_policy": "reject_and_retry",
+    "wrong_type_policy": "reject_and_retry",
+    "missing_provenance_policy": "warn_and_continue"
+  },
+
+  "vertex_id_cache": {
+    "description": "In-memory cache of all vertex IDs written to the graph in the current session, keyed by label. Rebuilt from the graph on session resume. Used by the extractor to reuse IDs and by the validator for dangling-edge checks.",
+    "storage": "in_memory",
+    "persistence": "none",
+    "rebuild_on_resume": true,
+    "rebuild_query": "g.V().valueMap('id', 'label').toList()"
+  },
+
+  "id_conventions": {
+    "description": "Slug-based string ID patterns for all vertex types. All slugs are lowercase, hyphen-separated, no spaces, no special characters.",
+    "conventions": {
+      "KnowledgeSession":          "session:hypertension:{YYYY-MM-DD}",
+      "SessionSection":            "section:{session_id}:{section_order}",
+      "TranscriptEpisode":         "ep:{session_id}:{sequence}",
+      "Person":                    "person:{name_slug}",
+      "HypertensionConcept":       "concept:{name_slug}",
+      "BloodPressureMeasurement":  "bp:{context_slug}:{sequence}",
+      "DiagnosticCriterion":       "criterion:{name_slug}",
+      "ClinicalFinding":           "finding:{name_slug}",
+      "Symptom":                   "symptom:{name_slug}",
+      "Comorbidity":               "comorbidity:{name_slug}",
+      "RiskFactor":                "riskfactor:{name_slug}",
+      "SecondaryCause":            "secondary:{name_slug}",
+      "DiagnosticTest":            "test:{name_slug}",
+      "Medication":                "med:{name_slug}",
+      "LifestyleIntervention":     "lifestyle:{name_slug}",
+      "FollowUpPlan":              "followup:{context_slug}:{sequence}",
+      "DecisionRule":              "rule:{if_condition_slug}",
+      "ClinicalReasoningPattern":  "pattern:{name_slug}",
+      "Pitfall":                   "pitfall:{description_slug}",
+      "CaseScenario":              "case:{scenario_type_slug}:{sequence}",
+      "ContextualConstraint":      "constraint:{context_slug}:{sequence}",
+      "Outcome":                   "outcome:{context_slug}:{sequence}",
+      "ProvenanceEvidence":        "prov:{episode_id}:{sequence}"
+    },
+    "slug_rules": [
+      "Lowercase only",
+      "Replace spaces with hyphens",
+      "Remove all special characters except hyphens and colons",
+      "Truncate slugs to 48 characters maximum",
+      "Sequence numbers are zero-padded 2-digit integers starting at 01"
+    ]
+  },
+
+  "session_lifecycle": {
+    "on_start": [
+      "Load schema.json and validate it parses correctly",
+      "Load section_map.json, provenance_spec.json, validation_rules.json",
+      "Connect to Gremlin endpoint and verify connectivity",
+      "Check if session ID already exists in graph — if yes, resume mode",
+      "If new session: emit KnowledgeSession vertex and Person vertex, write to graph",
+      "Initialise in-memory vertex ID cache",
+      "Start conversational agent with opening_line"
+    ],
+    "on_resume": [
+      "Load existing session ID from graph",
+      "Rebuild vertex ID cache from graph via rebuild_query",
+      "Identify last completed section from SessionSection vertices",
+      "Resume conversational agent from next incomplete section"
+    ],
+    "on_end": [
+      "Agent delivers closing summary",
+      "Write final SessionSection vertex for closure",
+      "Flush and close Gremlin connection",
+      "Write session completion log"
+    ],
+    "on_error": [
+      "Log error with full delta payload",
+      "If graph write fails: roll back transaction, log, continue session",
+      "If extractor fails after max_retries: drop delta, log as error, continue session",
+      "If Gremlin connection lost: attempt reconnect up to max_connection_retries, then pause session and alert operator"
+    ]
+  }
+}

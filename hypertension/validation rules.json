@@ -1,0 +1,372 @@
+{
+  "domain": "hypertension",
+  "version": "1.0",
+  "description": "Validation rules enforced on every Hydra graph delta before it is written to the property graph. Rules are evaluated in order. The first reject_delta_and_retry failure stops evaluation and returns errors to the LLM extractor. warn_and_continue failures are collected and reported but do not block the write.",
+
+  "evaluation_order": "sequential",
+  "stop_on_first_reject": true,
+
+  "rules": [
+
+    {
+      "rule_id": "R001",
+      "name": "session_root_exists",
+      "category": "structural",
+      "description": "A KnowledgeSession vertex with domain='hypertension' must exist in the graph (written in prior delta or present in current delta) before any other vertex type is written.",
+      "applies_to": "all_vertices_except_KnowledgeSession",
+      "check": "vertex_id_cache contains at least one KnowledgeSession vertex OR current delta contains a KnowledgeSession vertex",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "No KnowledgeSession root found. Emit KnowledgeSession with domain='hypertension' before any other vertices."
+    },
+
+    {
+      "rule_id": "R002",
+      "name": "no_unknown_vertex_labels",
+      "category": "schema_conformance",
+      "description": "Every vertex in the delta must have a label that exists in schema.json vertices.",
+      "allowed_vertex_labels": [
+        "Person",
+        "KnowledgeSession",
+        "SessionSection",
+        "TranscriptEpisode",
+        "ProvenanceEvidence",
+        "HypertensionConcept",
+        "BloodPressureMeasurement",
+        "DiagnosticCriterion",
+        "ClinicalFinding",
+        "Symptom",
+        "Comorbidity",
+        "RiskFactor",
+        "SecondaryCause",
+        "DiagnosticTest",
+        "Medication",
+        "LifestyleIntervention",
+        "FollowUpPlan",
+        "DecisionRule",
+        "ClinicalReasoningPattern",
+        "Pitfall",
+        "CaseScenario",
+        "ContextualConstraint",
+        "Outcome"
+      ],
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Unknown vertex label '{label}'. Only labels declared in schema.json are permitted."
+    },
+
+    {
+      "rule_id": "R003",
+      "name": "no_unknown_edge_labels",
+      "category": "schema_conformance",
+      "description": "Every edge in the delta must have a label that exists in schema.json edges.",
+      "allowed_edge_labels": [
+        "hasSession",
+        "hasSection",
+        "hasEpisode",
+        "mentionedIn",
+        "discusses",
+        "discussesRule",
+        "discussesCase",
+        "hasMeasurement",
+        "classifiedAs",
+        "suggests",
+        "symptomSuggests",
+        "requires",
+        "requiresPlan",
+        "treatedWith",
+        "caseTreatedWith",
+        "lifestyleTreatment",
+        "contraindicated",
+        "monitoredBy",
+        "planMonitoredBy",
+        "triggers",
+        "leadsTo",
+        "explainedBy",
+        "patternExplainsCase",
+        "avoid",
+        "modulatedBy",
+        "constraintModulatesPlan",
+        "supportedBy",
+        "conceptSupportedBy"
+      ],
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Unknown edge label '{label}'. Only edge labels declared in schema.json are permitted."
+    },
+
+    {
+      "rule_id": "R004",
+      "name": "required_properties_present",
+      "category": "schema_conformance",
+      "description": "Every vertex must have all properties marked required:true in schema.json. Missing required properties are a hard failure.",
+      "required_properties_by_label": {
+        "KnowledgeSession":         ["domain"],
+        "SessionSection":           ["sectionType", "order"],
+        "TranscriptEpisode":        ["verbatimText"],
+        "ProvenanceEvidence":       ["traceText", "sourceEpisode", "speaker"],
+        "HypertensionConcept":      ["name"],
+        "DiagnosticCriterion":      ["criterionName"],
+        "ClinicalFinding":          ["name"],
+        "Symptom":                  ["name"],
+        "Comorbidity":              ["name"],
+        "RiskFactor":               ["name"],
+        "SecondaryCause":           ["name"],
+        "DiagnosticTest":           ["testName"],
+        "Medication":               ["name"],
+        "LifestyleIntervention":    ["name"],
+        "DecisionRule":             ["ruleText"],
+        "ClinicalReasoningPattern": ["patternName"],
+        "Pitfall":                  ["description"],
+        "CaseScenario":             ["scenarioType"]
+      },
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Vertex of type '{label}' is missing required property '{property}'. Add the property and resubmit."
+    },
+
+    {
+      "rule_id": "R005",
+      "name": "correct_property_types",
+      "category": "schema_conformance",
+      "description": "Property values must match the type declared in schema.json. No implicit coercion is performed.",
+      "type_rules": [
+        {
+          "vertex_label": "SessionSection",
+          "property": "order",
+          "expected_type": "int32",
+          "rule": "Must be a bare JSON integer. Not a string, not a float."
+        },
+        {
+          "vertex_label": "BloodPressureMeasurement",
+          "property": "systolic",
+          "expected_type": "int32",
+          "rule": "Must be a bare JSON integer e.g. 140, not '140' or 140.0."
+        },
+        {
+          "vertex_label": "BloodPressureMeasurement",
+          "property": "diastolic",
+          "expected_type": "int32",
+          "rule": "Must be a bare JSON integer e.g. 90, not '90' or 90.0."
+        },
+        {
+          "vertex_label": "BloodPressureMeasurement",
+          "property": "repeatReadings",
+          "expected_type": "boolean",
+          "rule": "Must be JSON true or false. Not 'true', not 1, not 0."
+        },
+        {
+          "vertex_label": "ClinicalFinding",
+          "property": "redFlag",
+          "expected_type": "boolean",
+          "rule": "Must be JSON true or false."
+        },
+        {
+          "vertex_label": "RiskFactor",
+          "property": "modifiable",
+          "expected_type": "boolean",
+          "rule": "Must be JSON true or false."
+        },
+        {
+          "vertex_label": "Outcome",
+          "property": "achieved",
+          "expected_type": "boolean",
+          "rule": "Must be JSON true or false."
+        },
+        {
+          "vertex_label": "Outcome",
+          "property": "hospitalization",
+          "expected_type": "boolean",
+          "rule": "Must be JSON true or false."
+        }
+      ],
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Property '{property}' on vertex '{label}' has wrong type. Expected {expected_type}. Received value: {actual_value}."
+    },
+
+    {
+      "rule_id": "R006",
+      "name": "edge_endpoint_type_conformance",
+      "category": "schema_conformance",
+      "description": "Every edge must connect the exact (out-label, in-label) pair declared in schema.json. Connecting wrong vertex types is a hard failure.",
+      "endpoint_rules": [
+        { "edge": "hasSession",             "out": "Person",                   "in": "KnowledgeSession"        },
+        { "edge": "hasSection",             "out": "KnowledgeSession",         "in": "SessionSection"          },
+        { "edge": "hasEpisode",             "out": "SessionSection",           "in": "TranscriptEpisode"       },
+        { "edge": "mentionedIn",            "out": "HypertensionConcept",      "in": "TranscriptEpisode"       },
+        { "edge": "discusses",              "out": "TranscriptEpisode",        "in": "HypertensionConcept"     },
+        { "edge": "discussesRule",          "out": "TranscriptEpisode",        "in": "DecisionRule"            },
+        { "edge": "discussesCase",          "out": "TranscriptEpisode",        "in": "CaseScenario"            },
+        { "edge": "hasMeasurement",         "out": "CaseScenario",             "in": "BloodPressureMeasurement"},
+        { "edge": "classifiedAs",           "out": "BloodPressureMeasurement", "in": "HypertensionConcept"     },
+        { "edge": "suggests",               "out": "ClinicalFinding",          "in": "SecondaryCause"          },
+        { "edge": "symptomSuggests",        "out": "Symptom",                  "in": "SecondaryCause"          },
+        { "edge": "requires",               "out": "HypertensionConcept",      "in": "DiagnosticTest"          },
+        { "edge": "requiresPlan",           "out": "HypertensionConcept",      "in": "FollowUpPlan"            },
+        { "edge": "treatedWith",            "out": "HypertensionConcept",      "in": "Medication"              },
+        { "edge": "caseTreatedWith",        "out": "CaseScenario",             "in": "Medication"              },
+        { "edge": "lifestyleTreatment",     "out": "HypertensionConcept",      "in": "LifestyleIntervention"   },
+        { "edge": "contraindicated",        "out": "Medication",               "in": "Comorbidity"             },
+        { "edge": "monitoredBy",            "out": "Medication",               "in": "DiagnosticTest"          },
+        { "edge": "planMonitoredBy",        "out": "FollowUpPlan",             "in": "DiagnosticTest"          },
+        { "edge": "triggers",               "out": "ClinicalFinding",          "in": "DecisionRule"            },
+        { "edge": "leadsTo",                "out": "DecisionRule",             "in": "Outcome"                 },
+        { "edge": "explainedBy",            "out": "ClinicalReasoningPattern", "in": "DecisionRule"            },
+        { "edge": "patternExplainsCase",    "out": "ClinicalReasoningPattern", "in": "CaseScenario"            },
+        { "edge": "avoid",                  "out": "Pitfall",                  "in": "DecisionRule"            },
+        { "edge": "modulatedBy",            "out": "ContextualConstraint",     "in": "DecisionRule"            },
+        { "edge": "constraintModulatesPlan","out": "ContextualConstraint",     "in": "FollowUpPlan"            },
+        { "edge": "supportedBy",            "out": "DecisionRule",             "in": "ProvenanceEvidence"      },
+        { "edge": "conceptSupportedBy",     "out": "HypertensionConcept",      "in": "ProvenanceEvidence"      }
+      ],
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Edge '{edge}' connects wrong vertex types. Expected out='{expected_out}' → in='{expected_in}'. Got out='{actual_out}' → in='{actual_in}'."
+    },
+
+    {
+      "rule_id": "R007",
+      "name": "no_dangling_edges",
+      "category": "referential_integrity",
+      "description": "Every edge endpoint (out vertex ID and in vertex ID) must exist either in the current delta or in the vertex ID cache from prior writes. An edge pointing to a non-existent vertex ID is a hard failure.",
+      "vertex_id_cache_used": true,
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Edge '{edge}' has dangling endpoint. Vertex ID '{missing_id}' does not exist in the current delta or in the vertex cache. Either emit the missing vertex in this delta or correct the ID."
+    },
+
+    {
+      "rule_id": "R008",
+      "name": "vertex_id_format",
+      "category": "id_integrity",
+      "description": "All vertex IDs must be non-empty strings. IDs must be lowercase, hyphen/colon-separated slugs. No spaces, no uppercase, no special characters other than hyphens and colons.",
+      "id_pattern": "^[a-z0-9][a-z0-9\\-:]*[a-z0-9]$",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Vertex ID '{id}' does not match the required slug format. Use lowercase letters, digits, hyphens, and colons only."
+    },
+
+    {
+      "rule_id": "R009",
+      "name": "session_domain_matches",
+      "category": "domain_integrity",
+      "description": "The KnowledgeSession vertex in this delta must have domain='hypertension'. A delta with domain='hospitality' or any other value must be rejected.",
+      "applies_to": "KnowledgeSession",
+      "check": "domain == 'hypertension'",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "KnowledgeSession domain must be 'hypertension'. Got '{actual_domain}'."
+    },
+
+    {
+      "rule_id": "R010",
+      "name": "section_order_is_positive_integer",
+      "category": "data_quality",
+      "description": "SessionSection.order must be a positive integer between 1 and 7 inclusive, matching the 7-section structure defined in section_map.json.",
+      "applies_to": "SessionSection",
+      "check": "order >= 1 AND order <= 7",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "SessionSection.order must be between 1 and 7. Got '{actual_value}'."
+    },
+
+    {
+      "rule_id": "R011",
+      "name": "bp_values_physiologically_plausible",
+      "category": "data_quality",
+      "description": "BloodPressureMeasurement systolic and diastolic values, when provided, must fall within physiologically plausible ranges. Values outside these ranges indicate a data entry error.",
+      "applies_to": "BloodPressureMeasurement",
+      "checks": [
+        { "property": "systolic",  "min": 60,  "max": 300 },
+        { "property": "diastolic", "min": 30,  "max": 200 }
+      ],
+      "action_on_failure": "warn_and_continue",
+      "error_message": "BloodPressureMeasurement has implausible value: {property}={actual_value}. Expected range {min}–{max} mmHg. The vertex will be written but flagged for review."
+    },
+
+    {
+      "rule_id": "R012",
+      "name": "decision_rule_text_not_empty",
+      "category": "data_quality",
+      "description": "DecisionRule.ruleText must not be an empty string or a whitespace-only string. An empty rule is useless for downstream reasoning.",
+      "applies_to": "DecisionRule",
+      "check": "ruleText.strip().length > 0",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "DecisionRule.ruleText is empty or whitespace. Provide a meaningful rule statement."
+    },
+
+    {
+      "rule_id": "R013",
+      "name": "provenance_trace_text_not_generic",
+      "category": "provenance_quality",
+      "description": "ProvenanceEvidence.traceText must not be a generic placeholder. Strings matching known placeholder patterns are rejected.",
+      "applies_to": "ProvenanceEvidence",
+      "banned_patterns": [
+        "the expert mentioned",
+        "the doctor said",
+        "extracted from interview",
+        "see transcript",
+        "n/a",
+        "not available",
+        "unknown"
+      ],
+      "match_type": "case_insensitive_starts_with",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "ProvenanceEvidence.traceText '{trace_text}' is too generic. Provide a specific quote or faithful paraphrase from the transcript."
+    },
+
+    {
+      "rule_id": "R014",
+      "name": "provenance_attached_to_knowledge_vertices",
+      "category": "provenance_quality",
+      "description": "Every knowledge vertex emitted in this delta should have at least one outgoing supportedBy or conceptSupportedBy edge to a ProvenanceEvidence vertex. This is a soft rule — violations emit a warning but do not block the write.",
+      "knowledge_vertex_labels": [
+        "HypertensionConcept",
+        "BloodPressureMeasurement",
+        "DiagnosticCriterion",
+        "ClinicalFinding",
+        "Symptom",
+        "Comorbidity",
+        "RiskFactor",
+        "SecondaryCause",
+        "DiagnosticTest",
+        "Medication",
+        "LifestyleIntervention",
+        "FollowUpPlan",
+        "DecisionRule",
+        "ClinicalReasoningPattern",
+        "Pitfall",
+        "CaseScenario",
+        "ContextualConstraint",
+        "Outcome"
+      ],
+      "action_on_failure": "warn_and_continue",
+      "error_message": "Vertex '{label}' (id='{id}') has no provenance edge. Add a supportedBy or conceptSupportedBy edge to a ProvenanceEvidence vertex. The vertex will be written and flagged for provenance repair."
+    },
+
+    {
+      "rule_id": "R015",
+      "name": "no_self_referencing_edges",
+      "category": "graph_integrity",
+      "description": "An edge must not have the same vertex ID as both its out and in endpoint.",
+      "check": "edge.out_id != edge.in_id",
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Edge '{edge}' has the same vertex ID '{id}' on both endpoints. Self-referencing edges are not permitted."
+    }
+
+  ],
+
+  "summary": {
+    "total_rules": 15,
+    "hard_failures": [
+      "R001 session_root_exists",
+      "R002 no_unknown_vertex_labels",
+      "R003 no_unknown_edge_labels",
+      "R004 required_properties_present",
+      "R005 correct_property_types",
+      "R006 edge_endpoint_type_conformance",
+      "R007 no_dangling_edges",
+      "R008 vertex_id_format",
+      "R009 session_domain_matches",
+      "R010 section_order_is_positive_integer",
+      "R012 decision_rule_text_not_empty",
+      "R013 provenance_trace_text_not_generic",
+      "R015 no_self_referencing_edges"
+    ],
+    "soft_warnings": [
+      "R011 bp_values_physiologically_plausible",
+      "R014 provenance_attached_to_knowledge_vertices"
+    ]
+  }
+}

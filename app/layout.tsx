@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "chatgraph",
-  description: "Browser-first chatgraph prototype"
+  title: "Cognisee · Hospitality Knowledge Engineer",
+  description: "Expert hospitality knowledge elicitation and live graph capture"
 };
 
 export default function RootLayout({

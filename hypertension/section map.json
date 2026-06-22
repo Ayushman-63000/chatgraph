@@ -1,0 +1,303 @@
+{
+  "domain": "hypertension",
+  "description": "Maps each of the 7 interview sections to their target vertex types, edge patterns, extraction goals, and ID conventions. The LLM extractor reads this at session start to scope its output per turn.",
+  "sections": [
+    {
+      "section_id": "A",
+      "section_type": "introduction",
+      "title": "Introduction",
+      "order": 1,
+      "purpose": "Establish session identity, scope, and consent. Create the root KnowledgeSession vertex and link the expert Person vertex.",
+      "capture_goals": [
+        "Expert name and role",
+        "Specialization and years of experience in hypertension",
+        "Session objective and confidentiality level",
+        "Expert preferences for pacing or depth"
+      ],
+      "primary_vertex_labels": [
+        "Person",
+        "KnowledgeSession",
+        "SessionSection",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "hasSession",  "out": "Person",           "in": "KnowledgeSession" },
+        { "edge": "hasSection",  "out": "KnowledgeSession", "in": "SessionSection"   },
+        { "edge": "hasEpisode",  "out": "SessionSection",   "in": "TranscriptEpisode" }
+      ],
+      "id_seeds": {
+        "KnowledgeSession": "session:hypertension:{YYYY-MM-DD}",
+        "SessionSection":   "section:{session_id}:1",
+        "Person":           "person:{expert_name_slug}"
+      },
+      "extractor_instruction": "Emit the KnowledgeSession vertex first with domain='hypertension'. Then emit the Person vertex and link with hasSession. Do not emit any clinical knowledge nodes in this section."
+    },
+
+    {
+      "section_id": "B",
+      "section_type": "explicit_clinical_knowledge",
+      "title": "Explicit Clinical Knowledge",
+      "order": 2,
+      "purpose": "Capture foundational, textbook-verifiable knowledge: classification systems, BP thresholds, diagnostic criteria, signs/symptoms, comorbidities, risk factors, and guideline differences.",
+      "capture_goals": [
+        "Hypertension definition and classification (Stage 1, Stage 2, isolated systolic, etc.)",
+        "BP threshold values and measurement context",
+        "Diagnostic criteria by guideline (ACC/AHA, ESC, JNC)",
+        "Subtle or overlooked signs and symptoms",
+        "Comorbidities and their impact on management",
+        "Modifiable and non-modifiable risk factors",
+        "Guideline differences and expert preference"
+      ],
+      "primary_vertex_labels": [
+        "HypertensionConcept",
+        "BloodPressureMeasurement",
+        "DiagnosticCriterion",
+        "ClinicalFinding",
+        "Symptom",
+        "Comorbidity",
+        "RiskFactor",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "discusses",       "out": "TranscriptEpisode",      "in": "HypertensionConcept"    },
+        { "edge": "mentionedIn",     "out": "HypertensionConcept",    "in": "TranscriptEpisode"      },
+        { "edge": "classifiedAs",    "out": "BloodPressureMeasurement","in": "HypertensionConcept"   },
+        { "edge": "symptomSuggests", "out": "Symptom",                "in": "SecondaryCause"         },
+        { "edge": "conceptSupportedBy", "out": "HypertensionConcept", "in": "ProvenanceEvidence"     }
+      ],
+      "id_seeds": {
+        "HypertensionConcept":      "concept:{name_slug}",
+        "BloodPressureMeasurement": "bp:{context_slug}:{sequence}",
+        "DiagnosticCriterion":      "criterion:{name_slug}",
+        "ClinicalFinding":          "finding:{name_slug}",
+        "Symptom":                  "symptom:{name_slug}",
+        "Comorbidity":              "comorbidity:{name_slug}",
+        "RiskFactor":               "riskfactor:{name_slug}"
+      },
+      "extractor_instruction": "For every classification mentioned (e.g. 'Stage 2 hypertension'), emit one HypertensionConcept vertex. For every BP threshold value, emit one BloodPressureMeasurement vertex and link to its concept with classifiedAs. Attach ProvenanceEvidence to every HypertensionConcept via conceptSupportedBy."
+    },
+
+    {
+      "section_id": "C",
+      "section_type": "clinical_processes_workflows",
+      "title": "Clinical Processes and Workflows",
+      "order": 3,
+      "purpose": "Capture the expert's step-by-step diagnostic and management workflows: history-taking order, examination priorities, investigation sequencing, when to start medication, follow-up logic, and referral thresholds.",
+      "capture_goals": [
+        "Step-by-step diagnostic process for a new hypertensive patient",
+        "Physical exam findings that are often underestimated",
+        "Criteria for screening secondary causes",
+        "Decision logic: lifestyle-only vs. starting medication",
+        "Medication selection and initial dosing approach",
+        "Follow-up interval and monitoring items",
+        "Criteria for specialist referral",
+        "Common protocol exceptions the expert makes"
+      ],
+      "primary_vertex_labels": [
+        "DecisionRule",
+        "DiagnosticTest",
+        "Medication",
+        "LifestyleIntervention",
+        "FollowUpPlan",
+        "SecondaryCause",
+        "ClinicalFinding",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "discussesRule",       "out": "TranscriptEpisode",   "in": "DecisionRule"          },
+        { "edge": "requires",            "out": "HypertensionConcept", "in": "DiagnosticTest"        },
+        { "edge": "requiresPlan",        "out": "HypertensionConcept", "in": "FollowUpPlan"          },
+        { "edge": "treatedWith",         "out": "HypertensionConcept", "in": "Medication"            },
+        { "edge": "lifestyleTreatment",  "out": "HypertensionConcept", "in": "LifestyleIntervention" },
+        { "edge": "monitoredBy",         "out": "Medication",          "in": "DiagnosticTest"        },
+        { "edge": "planMonitoredBy",     "out": "FollowUpPlan",        "in": "DiagnosticTest"        },
+        { "edge": "suggests",            "out": "ClinicalFinding",     "in": "SecondaryCause"        },
+        { "edge": "triggers",            "out": "ClinicalFinding",     "in": "DecisionRule"          },
+        { "edge": "supportedBy",         "out": "DecisionRule",        "in": "ProvenanceEvidence"    }
+      ],
+      "id_seeds": {
+        "DecisionRule":          "rule:{if_condition_slug}",
+        "DiagnosticTest":        "test:{name_slug}",
+        "Medication":            "med:{name_slug}",
+        "LifestyleIntervention": "lifestyle:{name_slug}",
+        "FollowUpPlan":          "followup:{context_slug}:{sequence}",
+        "SecondaryCause":        "secondary:{name_slug}"
+      },
+      "extractor_instruction": "Every 'if-then' workflow step becomes a DecisionRule vertex. Link ClinicalFindings that activate rules with triggers. Link medications and lifestyle interventions to the relevant HypertensionConcept. Attach ProvenanceEvidence to every DecisionRule via supportedBy."
+    },
+
+    {
+      "section_id": "D",
+      "section_type": "experience_based_insights",
+      "title": "Experience-Based Insights",
+      "order": 4,
+      "purpose": "Extract tacit, non-textbook knowledge: heuristics, gut-feeling rules, pattern recognition, subtle cues, common errors, and habits that distinguish experienced clinicians.",
+      "capture_goals": [
+        "Gut-feeling and judgment-call rules",
+        "Early warning patterns that predict progression",
+        "Difference in feel between typical and atypical presentations",
+        "Memorable case that shaped the expert's approach",
+        "Most common clinician errors with hypertension",
+        "Pitfalls residents fall into",
+        "Subtle cues the expert has learned to notice",
+        "Habits of seasoned hypertension clinicians"
+      ],
+      "primary_vertex_labels": [
+        "ClinicalReasoningPattern",
+        "Pitfall",
+        "DecisionRule",
+        "CaseScenario",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "explainedBy",        "out": "ClinicalReasoningPattern", "in": "DecisionRule"    },
+        { "edge": "patternExplainsCase","out": "ClinicalReasoningPattern", "in": "CaseScenario"    },
+        { "edge": "avoid",              "out": "Pitfall",                  "in": "DecisionRule"    },
+        { "edge": "discussesCase",      "out": "TranscriptEpisode",        "in": "CaseScenario"    },
+        { "edge": "discussesRule",      "out": "TranscriptEpisode",        "in": "DecisionRule"    },
+        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence" }
+      ],
+      "id_seeds": {
+        "ClinicalReasoningPattern": "pattern:{name_slug}",
+        "Pitfall":                  "pitfall:{description_slug}",
+        "CaseScenario":             "case:insight:{sequence}"
+      },
+      "extractor_instruction": "Heuristics and gut-feeling rules become ClinicalReasoningPattern vertices. Each mistake or trap becomes a Pitfall vertex linked to the rule it relates to via avoid. If the expert narrates a past case, emit a CaseScenario vertex and link with patternExplainsCase."
+    },
+
+    {
+      "section_id": "E",
+      "section_type": "case_based_reasoning",
+      "title": "Case-Based Reasoning",
+      "order": 5,
+      "purpose": "Extract reasoning through concrete clinical scenarios: newly diagnosed, comorbid diabetes, resistant hypertension, hypertensive emergency, and atypical presentations.",
+      "capture_goals": [
+        "Stage 1 newly diagnosed patient — full reasoning walkthrough",
+        "Impact of comorbid diabetes on reasoning and management plan",
+        "Approach to resistant hypertension and its pitfalls",
+        "Step-by-step management of hypertensive emergency with end-organ damage",
+        "IV vs. oral therapy decision logic",
+        "Atypical case requiring unconventional thinking",
+        "How the expert evaluates competing hypotheses",
+        "Balancing guidelines with individual patient context",
+        "Re-evaluating assumptions as a case evolves"
+      ],
+      "primary_vertex_labels": [
+        "CaseScenario",
+        "BloodPressureMeasurement",
+        "DecisionRule",
+        "Medication",
+        "Outcome",
+        "ClinicalReasoningPattern",
+        "Pitfall",
+        "SecondaryCause",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "discussesCase",      "out": "TranscriptEpisode",        "in": "CaseScenario"           },
+        { "edge": "hasMeasurement",     "out": "CaseScenario",             "in": "BloodPressureMeasurement"},
+        { "edge": "classifiedAs",       "out": "BloodPressureMeasurement", "in": "HypertensionConcept"    },
+        { "edge": "caseTreatedWith",    "out": "CaseScenario",             "in": "Medication"             },
+        { "edge": "leadsTo",            "out": "DecisionRule",             "in": "Outcome"                },
+        { "edge": "patternExplainsCase","out": "ClinicalReasoningPattern", "in": "CaseScenario"           },
+        { "edge": "avoid",              "out": "Pitfall",                  "in": "DecisionRule"           },
+        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence"     }
+      ],
+      "id_seeds": {
+        "CaseScenario":             "case:{scenario_type_slug}:{sequence}",
+        "BloodPressureMeasurement": "bp:{case_id}:{sequence}",
+        "Outcome":                  "outcome:{case_id}:{sequence}"
+      },
+      "extractor_instruction": "Each scenario the expert walks through becomes one CaseScenario vertex with scenarioType set to the scenario name (e.g. 'resistant_hypertension', 'hypertensive_emergency'). Emit BloodPressureMeasurement for any BP values mentioned and link with hasMeasurement. Emit Outcome for the final disposition and link via leadsTo from the key DecisionRule."
+    },
+
+    {
+      "section_id": "F",
+      "section_type": "rules_guidelines_decision_criteria",
+      "title": "Rules, Guidelines, and Decision Criteria",
+      "order": 6,
+      "purpose": "Capture explicit if-then rules, red flags, hospitalization thresholds, titration logic, contraindications, de-escalation triggers, and risk stratification factors.",
+      "capture_goals": [
+        "Key if-then rules governing management decisions",
+        "Red flags requiring urgent or emergent action",
+        "BP or clinical thresholds that prompt hospitalization",
+        "Medication titration process and decision points",
+        "Contraindications that most affect drug selection",
+        "Exceptions to standard protocols",
+        "Criteria for intensifying therapy",
+        "Criteria for de-escalating therapy",
+        "Risk stratification factors and weighting"
+      ],
+      "primary_vertex_labels": [
+        "DecisionRule",
+        "DiagnosticCriterion",
+        "Medication",
+        "Comorbidity",
+        "ClinicalFinding",
+        "Outcome",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "discussesRule",  "out": "TranscriptEpisode",  "in": "DecisionRule"       },
+        { "edge": "triggers",       "out": "ClinicalFinding",    "in": "DecisionRule"       },
+        { "edge": "leadsTo",        "out": "DecisionRule",       "in": "Outcome"            },
+        { "edge": "contraindicated","out": "Medication",         "in": "Comorbidity"        },
+        { "edge": "supportedBy",    "out": "DecisionRule",       "in": "ProvenanceEvidence" }
+      ],
+      "id_seeds": {
+        "DecisionRule":      "rule:{if_condition_slug}",
+        "DiagnosticCriterion": "criterion:{name_slug}",
+        "Outcome":           "outcome:rule:{sequence}"
+      },
+      "extractor_instruction": "Every stated rule — including threshold rules, red flags, and titration steps — becomes a DecisionRule vertex. Set ifCondition and thenAction explicitly. Mark priority as 'urgent' for red-flag rules. Link drug contraindications with contraindicated edges. Reuse existing Medication and Comorbidity vertex IDs — do not duplicate."
+    },
+
+    {
+      "section_id": "G",
+      "section_type": "contextual_systemic_factors",
+      "title": "Contextual and Systemic Factors",
+      "order": 7,
+      "purpose": "Capture how context modifies clinical decisions: patient preferences, resource constraints, psychosocial barriers, adherence signals, interdisciplinary coordination, and system-level improvement opportunities.",
+      "capture_goals": [
+        "How patient preferences influence care decisions",
+        "Adaptations in low-resource or limited-access settings",
+        "Psychosocial barriers most affecting adherence",
+        "Early signals of likely non-compliance",
+        "Role of interdisciplinary coordination in hypertension care",
+        "System-level changes that would most improve outcomes"
+      ],
+      "primary_vertex_labels": [
+        "ContextualConstraint",
+        "DecisionRule",
+        "FollowUpPlan",
+        "Outcome",
+        "TranscriptEpisode",
+        "ProvenanceEvidence"
+      ],
+      "edge_patterns": [
+        { "edge": "modulatedBy",             "out": "ContextualConstraint", "in": "DecisionRule"  },
+        { "edge": "constraintModulatesPlan", "out": "ContextualConstraint", "in": "FollowUpPlan"  },
+        { "edge": "leadsTo",                 "out": "DecisionRule",         "in": "Outcome"       },
+        { "edge": "supportedBy",             "out": "DecisionRule",         "in": "ProvenanceEvidence" }
+      ],
+      "id_seeds": {
+        "ContextualConstraint": "constraint:{context_slug}:{sequence}"
+      },
+      "extractor_instruction": "For each context-dependent modification (e.g. 'in low-resource settings I avoid X'), emit one ContextualConstraint vertex and link to the relevant DecisionRule with modulatedBy, or to FollowUpPlan with constraintModulatesPlan. Reuse DecisionRule and FollowUpPlan IDs from prior sections — do not duplicate. This section enriches existing nodes, not create new clinical concepts."
+    }
+  ],
+
+  "global_extractor_rules": {
+    "vertex_reuse": "Always check the known vertex ID cache before emitting a new vertex. If the same concept was extracted in a prior section, add edges to the existing vertex — never duplicate.",
+    "provenance_required": "Every extracted knowledge vertex (not session/transcript infrastructure) must have at least one outgoing supportedBy or conceptSupportedBy edge to a ProvenanceEvidence node in the same delta.",
+    "one_delta_per_turn": "Emit one delta per conversational turn. Do not batch multiple turns into one delta.",
+    "id_format": "All IDs are lowercase, hyphen-separated slugs. No spaces, no special characters.",
+    "session_root_first": "KnowledgeSession must be written to the graph before any other vertex in Section A. The extractor must not emit downstream vertices if the session root write fails."
+  }
+}

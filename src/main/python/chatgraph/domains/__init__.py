@@ -93,3 +93,7 @@ def _register_all() -> None:
     # line per new domain.
     if "medical" not in REGISTRY:
         from chatgraph.domains import medical  # noqa: F401
+    if "hypertension" not in REGISTRY:
+        from chatgraph.domains import hypertension  # noqa: F401
+    if "hospitality" not in REGISTRY:
+        from chatgraph.domains import hospitality  # noqa: F401

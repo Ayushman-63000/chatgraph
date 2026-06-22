@@ -17,7 +17,7 @@ import { GraphView } from "@/components/GraphView";
 import { exportSessionJson, exportTranscriptJsonl, exportTranscriptTxt } from "@/lib/export";
 import { OpenAIRealtimeSession, type RealtimeStatus } from "@/lib/realtime";
 import { mergeDelta } from "@/lib/schema";
-import { clearSession, defaultSession, saveSession } from "@/lib/storage";
+import { clearSession, loadSession, saveSession } from "@/lib/storage";
 import { createSpeechRecognition, speak, speechRecognitionAvailable, stopSpeaking } from "@/lib/speech";
 import type { ChatMessage, ChatResponse, ChatSession } from "@/lib/types";
 
@@ -36,7 +36,7 @@ export default function Home() {
 
   useEffect(() => {
     setSpeechAvailable(speechRecognitionAvailable());
-    setSession(defaultSession());
+    void loadSession().then(setSession);
   }, []);
 
   useEffect(() => {
@@ -242,9 +242,9 @@ export default function Home() {
         <div className="conversation-pane">
           <header className="topbar">
             <div>
-              <h1>chatgraph</h1>
+              <h1>Cognisee</h1>
               <p>
-                medical interview prototype
+                Cognisee · hospitality knowledge engineer
                 {realtimeStatus !== "idle" ? ` · voice ${realtimeStatus}` : ""}
               </p>
             </div>
@@ -302,14 +302,14 @@ export default function Home() {
           <div className="message-list">
             {session.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
-                <span>{message.role === "assistant" ? "agent" : "patient"}</span>
+                <span>{message.role === "assistant" ? "Cognisee" : "expert"}</span>
                 <p>{message.content}</p>
               </article>
             ))}
             {isSending && (
               <article className="message assistant pending">
-                <span>agent</span>
-                <p>Thinking…</p>
+                <span>Cognisee</span>
+                <p>Mapping the answer…</p>
               </article>
             )}
             <div ref={bottomRef} />
@@ -327,7 +327,8 @@ export default function Home() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Describe the headache in your own words"
+              placeholder="Share your hospitality expertise"
+              aria-label="Hospitality expert response"
               rows={2}
               disabled={isSending}
             />
@@ -345,7 +346,7 @@ export default function Home() {
 
         <aside className="graph-pane">
           <header className="graph-header">
-            <h2>graph</h2>
+            <h2>hospitality knowledge graph</h2>
           </header>
           <GraphView graph={session.graph} />
         </aside>

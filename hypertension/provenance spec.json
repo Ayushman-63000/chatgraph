@@ -1,0 +1,170 @@
+{
+  "domain": "hypertension",
+  "version": "1.0",
+  "description": "Defines the ProvenanceEvidence vertex schema, attachment rules, confidence semantics, and traceability conventions for the hypertension knowledge graph. Every extracted knowledge node must be traceable back to a specific transcript utterance via this spec.",
+
+  "provenance_vertex": {
+    "label": "ProvenanceEvidence",
+    "id_convention": "prov:{episode_id}:{sequence}",
+    "id_example": "prov:ep:session:hypertension:2026-06-18:7:1",
+    "fields": [
+      {
+        "field": "traceText",
+        "type": "string",
+        "required": true,
+        "description": "The verbatim quote or a faithful paraphrase from the transcript that directly justifies the extracted node or edge. Must be specific enough that a human reviewer can locate it in the raw transcript. Do not invent or generalize — copy from the TranscriptEpisode verbatimText.",
+        "bad_example": "The expert mentioned hypertension treatment.",
+        "good_example": "If the patient is already on two drugs and BP is still above 140/90, I always add a third agent before considering secondary causes."
+      },
+      {
+        "field": "sourceEpisode",
+        "type": "string",
+        "required": true,
+        "description": "The ID of the TranscriptEpisode vertex this evidence was extracted from. Must match an existing TranscriptEpisode ID in the graph.",
+        "id_format": "ep:{session_id}:{sequence}"
+      },
+      {
+        "field": "speaker",
+        "type": "string",
+        "required": true,
+        "description": "Who made the statement. Use one of the allowed values only.",
+        "allowed_values": ["expert", "interviewer", "system"]
+      },
+      {
+        "field": "timestamp",
+        "type": "string",
+        "required": false,
+        "description": "ISO-8601 datetime or relative offset within the session (e.g. '00:14:32'). Include when available from session metadata."
+      },
+      {
+        "field": "confidence",
+        "type": "string",
+        "required": false,
+        "description": "The LLM extractor's confidence that the extracted node/edge faithfully represents the expert's stated intent.",
+        "allowed_values": ["high", "medium", "low", "inferred"],
+        "confidence_definitions": {
+          "high": "The expert stated this directly and unambiguously. The traceText is a near-verbatim quote.",
+          "medium": "The expert implied this clearly but did not state it word-for-word. The traceText is a faithful paraphrase.",
+          "low": "The expert gestured toward this idea but did not elaborate. The extraction involves moderate interpretation.",
+          "inferred": "The node or edge was derived from multiple statements across the session rather than one utterance. The traceText summarizes the reasoning."
+        }
+      }
+    ]
+  },
+
+  "attachment_rules": {
+    "rule": "EVERY extracted knowledge vertex must have at least one outgoing edge to a ProvenanceEvidence vertex in the same delta as the extraction.",
+    "applies_to_vertex_labels": [
+      "HypertensionConcept",
+      "BloodPressureMeasurement",
+      "DiagnosticCriterion",
+      "ClinicalFinding",
+      "Symptom",
+      "Comorbidity",
+      "RiskFactor",
+      "SecondaryCause",
+      "DiagnosticTest",
+      "Medication",
+      "LifestyleIntervention",
+      "FollowUpPlan",
+      "DecisionRule",
+      "ClinicalReasoningPattern",
+      "Pitfall",
+      "CaseScenario",
+      "ContextualConstraint",
+      "Outcome"
+    ],
+    "exempt_vertex_labels": [
+      "Person",
+      "KnowledgeSession",
+      "SessionSection",
+      "TranscriptEpisode",
+      "ProvenanceEvidence"
+    ],
+    "edge_label_by_vertex": {
+      "HypertensionConcept":      "conceptSupportedBy",
+      "DecisionRule":              "supportedBy",
+      "ClinicalReasoningPattern":  "supportedBy",
+      "Pitfall":                   "supportedBy",
+      "CaseScenario":              "supportedBy",
+      "Medication":                "supportedBy",
+      "DiagnosticTest":            "supportedBy",
+      "LifestyleIntervention":     "supportedBy",
+      "FollowUpPlan":              "supportedBy",
+      "Outcome":                   "supportedBy",
+      "BloodPressureMeasurement":  "supportedBy",
+      "DiagnosticCriterion":       "supportedBy",
+      "ClinicalFinding":           "supportedBy",
+      "Symptom":                   "supportedBy",
+      "Comorbidity":               "supportedBy",
+      "RiskFactor":                "supportedBy",
+      "SecondaryCause":            "supportedBy",
+      "ContextualConstraint":      "supportedBy"
+    },
+    "failure_action": "warn_and_continue",
+    "failure_description": "If the LLM extractor emits a knowledge vertex without a provenance edge, the validator emits a WARNING and writes the vertex anyway. The session will be flagged for post-hoc provenance repair. The delta is NOT rejected — provenance is strongly recommended but not write-blocking."
+  },
+
+  "reuse_rules": {
+    "description": "A single ProvenanceEvidence node may support multiple knowledge vertices extracted from the same utterance.",
+    "rule": "If two or more vertices are extracted from the same TranscriptEpisode in the same delta, emit ONE ProvenanceEvidence vertex and link all knowledge vertices to it. Do not emit duplicate ProvenanceEvidence nodes for the same source episode within a single delta.",
+    "exception": "If two vertices from the same episode have meaningfully different justifications (different sub-sentences), emit separate ProvenanceEvidence nodes with distinct sequence numbers."
+  },
+
+  "cross_section_provenance": {
+    "description": "When a vertex created in an earlier section is enriched with new edges in a later section (e.g. a HypertensionConcept from Section B gains a treatedWith edge in Section C), a NEW ProvenanceEvidence node must be emitted for the enriching turn — even though the concept vertex itself already exists.",
+    "rule": "The ProvenanceEvidence node always traces the specific delta in which the edge was added, not the delta in which the vertex was first created."
+  },
+
+  "inferred_provenance": {
+    "description": "Some knowledge nodes are synthesized across multiple utterances (e.g. a DecisionRule assembled from three separate statements). These require a special inferred provenance record.",
+    "rule": "Set confidence='inferred'. In traceText, write a brief synthesis statement that names the episode IDs it draws from, e.g. 'Synthesized from ep:session:hypertension:2026-06-18:3, ep:...5, ep:...9 — expert consistently described adding a third drug after two-drug failure at 140/90.'",
+    "sourceEpisode": "Set to the episode ID of the most recent contributing utterance."
+  },
+
+  "id_convention": {
+    "pattern": "prov:{episode_id}:{sequence}",
+    "sequence": "Zero-padded 2-digit integer starting at 01, incrementing per ProvenanceEvidence node emitted within the same episode.",
+    "examples": [
+      "prov:ep:session:hypertension:2026-06-18:3:01",
+      "prov:ep:session:hypertension:2026-06-18:3:02",
+      "prov:ep:session:hypertension:2026-06-18:12:01"
+    ]
+  },
+
+  "validation": {
+    "validator": "hydra_graph_schema",
+    "checks": [
+      {
+        "check_id": "PV001",
+        "name": "traceText_not_empty",
+        "description": "ProvenanceEvidence.traceText must not be an empty string.",
+        "action_on_failure": "reject_delta_and_retry"
+      },
+      {
+        "check_id": "PV002",
+        "name": "sourceEpisode_exists",
+        "description": "ProvenanceEvidence.sourceEpisode must match an existing TranscriptEpisode ID in the vertex cache.",
+        "action_on_failure": "warn_and_continue"
+      },
+      {
+        "check_id": "PV003",
+        "name": "speaker_allowed_value",
+        "description": "ProvenanceEvidence.speaker must be one of: expert, interviewer, system.",
+        "action_on_failure": "reject_delta_and_retry"
+      },
+      {
+        "check_id": "PV004",
+        "name": "confidence_allowed_value",
+        "description": "If confidence is present, it must be one of: high, medium, low, inferred.",
+        "action_on_failure": "reject_delta_and_retry"
+      },
+      {
+        "check_id": "PV005",
+        "name": "no_duplicate_prov_same_delta",
+        "description": "Within a single delta, two ProvenanceEvidence nodes must not share the same sourceEpisode and traceText.",
+        "action_on_failure": "warn_and_continue"
+      }
+    ]
+  }
+}
