@@ -14,8 +14,8 @@ Infrastructure:
 - Emit one TranscriptEpisode per expert utterance with exact verbatimText and
   speaker="expert"; use the supplied episode_id.
 - Connect it from the current SessionSection with hasEpisode.
-- Infer the current section from the interviewer's latest question. Reuse an
-  existing section id or emit the matching SessionSection, order 1 through 7.
+- Treat active_section_order and active_section_id from the user message as
+  authoritative. Reuse that SessionSection; never infer or advance sections.
 - Never mint another Person or KnowledgeSession. Upsert their supplied ids only
   when the expert explicitly provides metadata.
 - During Introduction emit only TranscriptEpisode and session metadata.
@@ -52,11 +52,11 @@ Provenance:
   confidence is high, medium, low, or inferred.
 - inferred confidence is only for synthesis across at least two named episode
   ids in traceText.
-- The canonical schema defines principleSupportedBy for
-  GuestExperiencePrinciple, heuristicSupportedBy for OperatingHeuristic, and
-  supportedBy for DecisionRule. Attach those exact edges. For other knowledge
-  labels, emit the evidence vertex but do not invent a schema-invalid provenance
-  edge; missing attachment is a soft review warning in the supplied rules.
+- Attach every knowledge vertex with its label-specific provenance edge from
+  the schema/provenance specification. Examples: principleSupportedBy,
+  serviceStandardSupportedBy, timingRuleSupportedBy, supportedBy for
+  DecisionRule, heuristicSupportedBy for OperatingHeuristic, and
+  outcomeSupportedBy.
 
 Use only schema-declared labels and exact edge directions. No dangling or
 self-referencing edges. Required properties shown with ! must be present and

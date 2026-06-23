@@ -3,6 +3,7 @@ import { getDomain } from "@/lib/domains";
 import {
   activeSectionOrder,
   graphSummary,
+  sectionInfrastructureDelta,
   sanitizeDelta,
   schemaReference
 } from "@/lib/schema";
@@ -66,8 +67,30 @@ export async function extractGraphDelta(
       body.domainId,
       sectionOrder
     );
-    if (sanitized.warnings.length < best.warnings.length) best = sanitized;
-    if (sanitized.errors.length === 0) return sanitized;
+    const infrastructure = sectionInfrastructureDelta(
+      body.domainId,
+      body.graph,
+      sectionOrder
+    );
+    const combined = {
+      ...sanitized,
+      delta: {
+        vertices: [
+          ...infrastructure.vertices,
+          ...sanitized.delta.vertices.filter(
+            (vertex) => !infrastructure.vertices.some((item) => item.id === vertex.id)
+          )
+        ],
+        edges: [
+          ...infrastructure.edges,
+          ...sanitized.delta.edges.filter(
+            (edge) => !infrastructure.edges.some((item) => item.id === edge.id)
+          )
+        ]
+      }
+    };
+    if (combined.warnings.length < best.warnings.length) best = combined;
+    if (combined.errors.length === 0) return combined;
     feedback =
       `The previous graph delta failed hard validation and was rejected:\n` +
       sanitized.errors.join("\n") +
@@ -95,6 +118,18 @@ function callExtractor(
   const domain = getDomain(body.domainId);
   const sections = domain.sectionMap?.sections ?? [];
   const activeSection = sections.find((section) => section.order === sectionOrder);
+  const provenanceEdges = domain.schema.edges
+    .filter((entry) => {
+      const endpoint = entry["@value"].in ?? entry["@value"].inV;
+      return endpoint === "ProvenanceEvidence";
+    })
+    .map((entry) => entry["@key"]);
+  const allowedEdges = [
+    ...new Set([
+      ...(activeSection?.edge_patterns ?? []).map((pattern) => pattern.edge),
+      ...provenanceEdges
+    ])
+  ];
   const sectionCatalog = sections.length
     ? sections
         .map(
@@ -118,7 +153,7 @@ function callExtractor(
           `Active section (authoritative for this turn):\n` +
           `${activeSection?.section_id ?? sectionOrder}. ${activeSection?.section_type ?? "narrative"} — ${activeSection?.title ?? ""}\n` +
           `Allowed vertex labels: ${(activeSection?.primary_vertex_labels ?? []).join(", ") || "schema-driven"}\n` +
-          `Allowed edge labels: ${(activeSection?.edge_patterns ?? []).map((pattern) => pattern.edge).join(", ") || "schema-driven"}\n` +
+          `Allowed edge labels: ${allowedEdges.join(", ") || "schema-driven"}\n` +
           `${activeSection?.extractor_instruction ?? ""}\n\n` +
           `Section catalog:\n${sectionCatalog}\n\n` +
           `Latest ${domain.participantLabel} utterance:\n${latestText}\n\n` +

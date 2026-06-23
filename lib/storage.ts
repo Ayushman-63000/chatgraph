@@ -7,7 +7,7 @@ const DB_NAME = "cognisee-hospitality-browser";
 const DB_VERSION = 1;
 const STORE_NAME = "sessions";
 const SESSION_KEY = "default";
-const SESSION_SCHEMA_VERSION = 2;
+const SESSION_SCHEMA_VERSION = 3;
 
 export function defaultSession(domainId: DomainId = "headache"): ChatSession {
   const domain = getDomain(domainId);

@@ -15,8 +15,8 @@ For each expert utterance:
   speaker="expert";
 - use the episode_id and session_id supplied in the user message;
 - connect it from the current SessionSection with hasEpisode;
-- infer the current section from the interviewer's latest question; reuse an
-  existing section id or emit the matching SessionSection (orders 1-7).
+- treat active_section_order and active_section_id from the user message as
+  authoritative; reuse that SessionSection and never advance it yourself.
 
 Reuse known ids. Use lowercase slug ids containing letters, digits, hyphens, and
 colons. Required properties shown with ! must be present and JSON scalar types
@@ -35,9 +35,14 @@ only when the utterance supports them.
 
 ProvenanceEvidence must quote or faithfully paraphrase the latest utterance,
 source the emitted episode, use speaker="expert", and use confidence high,
-medium, low, or inferred. The schema permits conceptSupportedBy only from
-HypertensionConcept and supportedBy only from DecisionRule. Never force those
-edges from other labels.
+medium, low, or inferred. Attach every knowledge vertex with its label-specific
+provenance edge from the schema/provenance specification: conceptSupportedBy,
+measurementSupportedBy, criterionSupportedBy, findingSupportedBy,
+symptomSupportedBy, comorbiditySupportedBy, riskFactorSupportedBy,
+secondaryCauseSupportedBy, testSupportedBy, medicationSupportedBy,
+lifestyleSupportedBy, followUpSupportedBy, supportedBy for DecisionRule,
+reasoningPatternSupportedBy, pitfallSupportedBy, caseSupportedBy,
+constraintSupportedBy, or outcomeSupportedBy.
 
 Use only schema-declared edge labels and exact directions. No dangling or
 self-referencing edges. Prefer a sparse correct delta over invented structure.

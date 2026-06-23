@@ -2,9 +2,9 @@
 
 Human-readable walkthrough of the hospitality domain's typed property-graph schema.
 
-`schema-hospitality.json` is the **single source of truth** for the schema. This document is a prose companion for human readers and reviewers. It is loaded by **no** code. If this document and the JSON disagree, **the JSON wins.** Do not treat vertex or edge counts here as authoritative — they are a point-in-time snapshot.
+`hospitality/schema hospitality.json` is the **single source of truth** for the authored schema. `src/main/json/hospitality.json` is its generated runtime normalization. This document is a prose companion. If prose and JSON disagree, **the JSON wins.**
 
-**21 vertex types · 27 edge types.**
+**21 vertex types · 41 edge types.**
 
 ---
 
@@ -12,7 +12,7 @@ Human-readable walkthrough of the hospitality domain's typed property-graph sche
 
 - Vertex labels are **PascalCase** (e.g. `GuestExperiencePrinciple`).
 - Edge labels are **camelCase** (e.g. `appliesToPersona`).
-- IDs are lowercase, colon-namespaced slugs (e.g. `principle:first-impressions-matter`, `session:hospitality:2026-06-18`).
+- IDs are lowercase, colon-namespaced slugs. Session IDs include a UTC timestamp and random suffix (e.g. `session:hospitality:20260618t015000000z:a1b2c3d4`).
 - Every extracted knowledge vertex **must** have at least one outgoing provenance edge to a `ProvenanceEvidence` vertex. Infrastructure vertices (`Person`, `KnowledgeSession`, `SessionSection`, `TranscriptEpisode`, `ProvenanceEvidence` itself) are exempt.
 - `CheckInPolicy` and `CheckOutPolicy` are **session singletons** — emitted exactly once per session and upserted (never duplicated) in subsequent sections.
 
@@ -87,7 +87,7 @@ The expert whose knowledge is being captured. Session root anchor.
 |---|---|---|---|
 | `name` | string | No | Expert's name or pseudonym |
 
-**ID convention:** `person:{expert-name-slug}`  
+**ID convention:** `person:{expert-name-slug}`
 **Edges out:** `hasSession → KnowledgeSession`
 
 ---
@@ -104,7 +104,7 @@ One knowledge-capture session. Holds session-level metadata. Created once per se
 | `objective` | string | No | Session goal summary |
 | `confidentialityLevel` | string | No | e.g. `"internal"`, `"public"` |
 
-**ID convention:** `session:hospitality:{YYYY-MM-DD}`  
+**ID convention:** `session:hospitality:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}`
 **Edges out:** `hasSection → SessionSection`
 
 ---
@@ -119,7 +119,7 @@ One section of the interview prompt (A–G). Organises transcript episodes by to
 | `order` | int32 | **Yes** | 1–7 |
 | `purpose` | string | No | What this section captures |
 
-**ID convention:** `section:{session_id}:{order}`  
+**ID convention:** `section:{session_id}:{order}`
 **Edges out:** `hasEpisode → TranscriptEpisode`
 
 ---
@@ -135,7 +135,7 @@ One conversational turn — a single expert utterance in response to the intervi
 | `endTime` | string | No | |
 | `confidence` | string | No | ASR confidence if auto-transcribed |
 
-**ID convention:** `ep:{session_id}:{sequence}` — sequence is a zero-padded integer  
+**ID convention:** `ep:{session_id}:{sequence}` — sequence is a zero-padded integer
 **Edges out:** `discusses`, `discussesRule`, `discussesHeuristic`, `discussesFailure`
 
 ---
@@ -151,7 +151,7 @@ The evidentiary anchor for every extracted knowledge vertex. Contains the verbat
 | `timestamp` | string | No | ISO-8601 or session offset |
 | `confidence` | string | No | `"high"` \| `"medium"` \| `"low"` \| `"inferred"` |
 
-**ID convention:** `prov:{episode_id}:{sequence}` — e.g. `prov:ep:session:hospitality:2026-06-18:5:01`
+**ID convention:** `prov:{episode_id}:{sequence}` — e.g. `prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:5:01`
 
 **Confidence definitions:**
 - `high` — expert stated the rule directly and unambiguously; traceText is a near-verbatim quote
@@ -175,9 +175,9 @@ A core, foundational belief about what excellent hospitality means — what gues
 | `type` | string | No | e.g. `"interaction"`, `"environment"`, `"emotional"` |
 | `neverCompromise` | boolean | No | `true` if expert says this is non-negotiable |
 
-**ID convention:** `principle:{name-slug}`  
-**Provenance edge:** `principleSupportedBy → ProvenanceEvidence`  
-**Edges out:** `appliesToPersona → GuestPersona`  
+**ID convention:** `principle:{name-slug}`
+**Provenance edge:** `principleSupportedBy → ProvenanceEvidence`
+**Edges out:** `appliesToPersona → GuestPersona`
 **Edges in:** `standardEnforces ← ServiceStandard`, `discusses ← TranscriptEpisode`
 
 ---
@@ -192,8 +192,8 @@ A specific, concrete standard the expert enforces that operationalises a princip
 | `nonNegotiable` | boolean | No | `true` if expert never compromises this |
 | `appliesToSegment` | string | No | Guest segment this standard targets |
 
-**ID convention:** `standard:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `standard:{name-slug}`
+**Provenance edge:** `serviceStandardSupportedBy → ProvenanceEvidence`
 **Edges out:** `standardEnforces → GuestExperiencePrinciple`
 
 ---
@@ -209,8 +209,8 @@ An observable behaviour, cue, or indicator that the expert uses to read a guest 
 | `highValueIndicator` | boolean | No | `true` if this signal identifies a high-value guest |
 | `returnLikelihood` | string | No | `"high"` \| `"medium"` \| `"low"` |
 
-**ID convention:** `signal:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `signal:{name-slug}`
+**Provenance edge:** `guestSignalSupportedBy → ProvenanceEvidence`
 **Edges out:** `signalIndicates → GuestPersona`, `signalTriggers → DecisionRule`
 
 > **Reuse rule:** `GuestSignal` vertices are frequently relevant across Sections B, C, and E. Always check the vertex ID cache before emitting — reuse the existing ID and add new edges rather than creating a duplicate.
@@ -228,8 +228,8 @@ A distinct guest type the expert recognises and serves differently. Not a market
 | `valueDriver` | string | No | What creates value for this guest type |
 | `repeatGuest` | boolean | No | `true` if this is a returning-guest persona |
 
-**ID convention:** `persona:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `persona:{name-slug}`
+**Provenance edge:** `guestPersonaSupportedBy → ProvenanceEvidence`
 **Edges in:** `appliesToPersona ← GuestExperiencePrinciple`, `signalIndicates ← GuestSignal`, `exceptionMadeFor ← ExceptionRule`, `drivenBy ← LoyaltyDriver`
 
 > **Reuse rule:** `GuestPersona` is the most frequently reused vertex across sections (B, C, D, E, F). Always reuse the existing vertex ID. Never duplicate.
@@ -250,8 +250,8 @@ The expert's formal and informal check-in policy for their property. **Session s
 | `earlyArrivalHandling` | string | No | How early-arriving guests are managed |
 | `rationale` | string | No | Why the policy is structured this way |
 
-**ID convention:** `policy:checkin:{session_id}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `policy:checkin:{session_id}`
+**Provenance edge:** `checkInPolicySupportedBy → ProvenanceEvidence`
 **Edges out:** `governs → TimingRule`, `constraintAffectsPolicy ← ContextualConstraint`
 
 > **Singleton rule:** If a `CheckInPolicy` vertex for this session already exists in the vertex ID cache, add new properties or edges to the existing vertex — never emit a second `CheckInPolicy`.
@@ -269,8 +269,8 @@ The expert's check-out policy. Session singleton with identical lifecycle rules 
 | `lateHandlingApproach` | string | No | How late departures are managed |
 | `rationale` | string | No | Why the policy is structured this way |
 
-**ID convention:** `policy:checkout:{session_id}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `policy:checkout:{session_id}`
+**Provenance edge:** `checkOutPolicySupportedBy → ProvenanceEvidence`
 **Edges out:** `governsCheckOut → TimingRule`
 
 ---
@@ -287,8 +287,8 @@ A specific if-then timing rule the expert has refined through experience — e.g
 | `exception` | string | No | Any stated exception to the rule |
 | `refinedThroughExperience` | boolean | No | `true` if expert says they learned this over time |
 
-**ID convention:** `timing:{rule-type-slug}:{sequence}`  
-**Provenance edge:** `heuristicSupportedBy → ProvenanceEvidence`  
+**ID convention:** `timing:{rule-type-slug}:{sequence}`
+**Provenance edge:** `timingRuleSupportedBy → ProvenanceEvidence`
 **Edges in:** `governs ← CheckInPolicy`, `governsCheckOut ← CheckOutPolicy`
 
 ---
@@ -307,9 +307,9 @@ An explicit if-then operational rule. The most important knowledge vertex type �
 | `priority` | string | No | `"high"` \| `"medium"` \| `"low"` |
 | `intuitionBased` | boolean | No | `true` if the expert describes this as gut-feel rather than process |
 
-**ID convention:** `rule:{if-condition-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
-**Edges in:** `signalTriggers ← GuestSignal`, `discussesRule ← TranscriptEpisode`, `heuristicExplains ← OperatingHeuristic`, `exceptionAppliesTo ← ExceptionRule`, `modulatedBy ← ContextualConstraint`  
+**ID convention:** `rule:{if-condition-slug}`
+**Provenance edge:** `supportedBy → ProvenanceEvidence`
+**Edges in:** `signalTriggers ← GuestSignal`, `discussesRule ← TranscriptEpisode`, `heuristicExplains ← OperatingHeuristic`, `exceptionAppliesTo ← ExceptionRule`, `modulatedBy ← ContextualConstraint`
 **Edges out:** `leadsTo → Outcome`
 
 > **Example:** *"If a guest is complaining loudly at the front desk and there are other guests nearby, move the conversation immediately to a private space before attempting to resolve."* — `ruleText`, `ifCondition: "complaining loudly in public area"`, `thenAction: "move to private space first"`.
@@ -326,9 +326,9 @@ An intuitive pattern or rule of thumb the expert has refined through lived exper
 | `whenUsed` | string | No | The context in which this heuristic applies |
 | `learnedThrough` | string | No | How this was learned (e.g. `"years of service recovery"`) |
 
-**ID convention:** `heuristic:{name-slug}`  
-**Provenance edge:** `heuristicSupportedBy → ProvenanceEvidence`  
-**Edges out:** `heuristicExplains → DecisionRule`  
+**ID convention:** `heuristic:{name-slug}`
+**Provenance edge:** `heuristicSupportedBy → ProvenanceEvidence`
+**Edges out:** `heuristicExplains → DecisionRule`
 **Edges in:** `discussesHeuristic ← TranscriptEpisode`
 
 > **Example:** *"New operators always try to enforce the policy. Experienced ones know when to bend it."* — This is a heuristic, not a rule. It doesn't have a specific if-then structure; it's a meta-pattern about how expertise expresses itself. It would be linked to a `DecisionRule` about policy flexibility via `heuristicExplains`.
@@ -345,9 +345,9 @@ A type of service failure the expert has experienced and developed a recovery pl
 | `description` | string | No | Fuller description |
 | `severity` | string | No | `"minor"`, `"moderate"`, `"major"`, `"reputation-threatening"` |
 
-**ID convention:** `failure:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
-**Edges out:** `resolvedBy → RecoveryAction`  
+**ID convention:** `failure:{name-slug}`
+**Provenance edge:** `serviceFailureSupportedBy → ProvenanceEvidence`
+**Edges out:** `resolvedBy → RecoveryAction`
 **Edges in:** `discussesFailure ← TranscriptEpisode`
 
 ---
@@ -363,9 +363,9 @@ The specific recovery action the expert takes in response to a `ServiceFailure`.
 | `leadsToLoyalty` | boolean | No | `true` if the expert says this recovery action typically creates loyalty |
 | `commonMistake` | string | No | The mistake newer operators make instead of this action |
 
-**ID convention:** `recovery:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
-**Edges in:** `resolvedBy ← ServiceFailure`  
+**ID convention:** `recovery:{name-slug}`
+**Provenance edge:** `recoveryActionSupportedBy → ProvenanceEvidence`
+**Edges in:** `resolvedBy ← ServiceFailure`
 **Edges out:** `recoveryLeadsTo → Outcome`
 
 ---
@@ -381,8 +381,8 @@ A deliberate exception to a standard policy — a decision the expert makes to b
 | `guestSegment` | string | No | Which guest type this exception is typically made for |
 | `frequency` | string | No | How often this exception is made |
 
-**ID convention:** `exception:{trigger-condition-slug}:{sequence}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `exception:{trigger-condition-slug}:{sequence}`
+**Provenance edge:** `exceptionRuleSupportedBy → ProvenanceEvidence`
 **Edges out:** `exceptionAppliesTo → DecisionRule`, `exceptionMadeFor → GuestPersona`
 
 ---
@@ -400,9 +400,9 @@ A factor that drives genuine guest loyalty — repeat visits, advocacy, or emoti
 | `turnsAdvocate` | boolean | No | `true` if this driver turns guests into active advocates |
 | `destroysTrust` | boolean | No | `true` if this is actually a trust-destruction factor (negative loyalty) |
 
-**ID convention:** `loyalty:{name-slug}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
-**Edges in:** `shapesLoyalty ← EmotionalMoment`  
+**ID convention:** `loyalty:{name-slug}`
+**Provenance edge:** `loyaltyDriverSupportedBy → ProvenanceEvidence`
+**Edges in:** `shapesLoyalty ← EmotionalMoment`
 **Edges out:** `drivenBy → GuestPersona`, `loyaltyLeadsTo → Outcome`
 
 ---
@@ -418,8 +418,8 @@ A specific gesture, moment, or micro-interaction that shapes loyalty — the "sm
 | `gestureScale` | string | No | `"micro"`, `"small"`, `"medium"` — most powerful moments are micro |
 | `outsizedImpact` | boolean | No | `true` if the expert explicitly says this had disproportionate impact |
 
-**ID convention:** `moment:{name-slug}:{sequence}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `moment:{name-slug}:{sequence}`
+**Provenance edge:** `emotionalMomentSupportedBy → ProvenanceEvidence`
 **Edges out:** `shapesLoyalty → LoyaltyDriver`
 
 ---
@@ -438,9 +438,9 @@ A real-world constraint that modifies how the expert applies rules or policies �
 | `customerMix` | string | No | Guest mix characteristic (e.g. `"70% business travellers"`) |
 | `operationalBottleneck` | string | No | The specific operational constraint |
 
-**ID convention:** `constraint:{context-slug}:{sequence}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
-**Edges out:** `modulatedBy → DecisionRule`, `constraintAffectsPolicy → CheckInPolicy` (or `CheckOutPolicy`)
+**ID convention:** `constraint:{context-slug}:{sequence}`
+**Provenance edge:** `contextualConstraintSupportedBy → ProvenanceEvidence`
+**Edges out:** `modulatedBy → DecisionRule`, `constraintAffectsPolicy → CheckInPolicy`, `constraintAffectsCheckOutPolicy → CheckOutPolicy`
 
 ---
 
@@ -455,8 +455,8 @@ The result of a decision, recovery action, loyalty driver, or contextual overrid
 | `loyaltyAchieved` | boolean | No | |
 | `revenueImpact` | string | No | e.g. `"positive"`, `"negative"`, `"neutral"` |
 
-**ID convention:** `outcome:{type-slug}:{sequence}`  
-**Provenance edge:** `supportedBy → ProvenanceEvidence`  
+**ID convention:** `outcome:{type-slug}:{sequence}`
+**Provenance edge:** `outcomeSupportedBy → ProvenanceEvidence`
 **Edges in:** `leadsTo ← DecisionRule`, `recoveryLeadsTo ← RecoveryAction`, `loyaltyLeadsTo ← LoyaltyDriver`
 
 ---
@@ -495,7 +495,8 @@ The result of a decision, recovery action, loyalty driver, or contextual overrid
 |---|---|---|
 | `governs` | `CheckInPolicy → TimingRule` | Policy governs this timing rule |
 | `governsCheckOut` | `CheckOutPolicy → TimingRule` | Checkout policy governs this timing rule |
-| `constraintAffectsPolicy` | `ContextualConstraint → CheckInPolicy` (or `CheckOutPolicy`) | Context modifies the policy |
+| `constraintAffectsPolicy` | `ContextualConstraint → CheckInPolicy` | Context modifies check-in policy |
+| `constraintAffectsCheckOutPolicy` | `ContextualConstraint → CheckOutPolicy` | Context modifies check-out policy |
 
 ### Operational Knowledge Edges
 
@@ -527,8 +528,10 @@ The result of a decision, recovery action, loyalty driver, or contextual overrid
 | Edge | Out → In | Applies to |
 |---|---|---|
 | `principleSupportedBy` | `GuestExperiencePrinciple → ProvenanceEvidence` | Principles only |
-| `heuristicSupportedBy` | `OperatingHeuristic` or `TimingRule → ProvenanceEvidence` | Tacit / experience-refined knowledge |
-| `supportedBy` | Any other knowledge vertex `→ ProvenanceEvidence` | All remaining knowledge vertex types |
+| `heuristicSupportedBy` | `OperatingHeuristic → ProvenanceEvidence` | Tacit operating heuristic |
+| `timingRuleSupportedBy` | `TimingRule → ProvenanceEvidence` | Experience-refined timing rule |
+| `supportedBy` | `DecisionRule → ProvenanceEvidence` | Explicit decision rule |
+| `*SupportedBy` | Matching knowledge vertex `→ ProvenanceEvidence` | Every other knowledge label has a dedicated typed provenance edge; see `hospitality/provenance spec.json` |
 
 ---
 
@@ -587,16 +590,16 @@ ContextualConstraint
 | Vertex Type | ID Pattern | Example |
 |---|---|---|
 | `Person` | `person:{name-slug}` | `person:arjun-mehta` |
-| `KnowledgeSession` | `session:hospitality:{YYYY-MM-DD}` | `session:hospitality:2026-06-18` |
-| `SessionSection` | `section:{session_id}:{order}` | `section:session:hospitality:2026-06-18:2` |
-| `TranscriptEpisode` | `ep:{session_id}:{sequence}` | `ep:session:hospitality:2026-06-18:14` |
-| `ProvenanceEvidence` | `prov:{episode_id}:{sequence}` | `prov:ep:session:hospitality:2026-06-18:14:01` |
+| `KnowledgeSession` | `session:hospitality:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}` | `session:hospitality:20260618t015000000z:a1b2c3d4` |
+| `SessionSection` | `section:{session_id}:{order}` | `section:session:hospitality:20260618t015000000z:a1b2c3d4:2` |
+| `TranscriptEpisode` | `ep:{session_id}:{sequence}` | `ep:session:hospitality:20260618t015000000z:a1b2c3d4:14` |
+| `ProvenanceEvidence` | `prov:{episode_id}:{sequence}` | `prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:14:01` |
 | `GuestExperiencePrinciple` | `principle:{name-slug}` | `principle:first-impressions-are-permanent` |
 | `ServiceStandard` | `standard:{name-slug}` | `standard:welcome-drink-within-3min` |
 | `GuestSignal` | `signal:{name-slug}` | `signal:guest-lingers-at-reception` |
 | `GuestPersona` | `persona:{name-slug}` | `persona:repeat-guest` |
-| `CheckInPolicy` | `policy:checkin:{session_id}` | `policy:checkin:session:hospitality:2026-06-18` |
-| `CheckOutPolicy` | `policy:checkout:{session_id}` | `policy:checkout:session:hospitality:2026-06-18` |
+| `CheckInPolicy` | `policy:checkin:{session_id}` | `policy:checkin:session:hospitality:20260618t015000000z:a1b2c3d4` |
+| `CheckOutPolicy` | `policy:checkout:{session_id}` | `policy:checkout:session:hospitality:20260618t015000000z:a1b2c3d4` |
 | `TimingRule` | `timing:{rule-type-slug}:{sequence}` | `timing:early-checkin:01` |
 | `DecisionRule` | `rule:{if-condition-slug}` | `rule:guest-arrives-early-room-ready` |
 | `OperatingHeuristic` | `heuristic:{name-slug}` | `heuristic:experienced-operators-bend-policy` |
@@ -649,12 +652,14 @@ If the extractor encounters expert knowledge that genuinely does not fit any ver
 
 | File | Purpose |
 |---|---|
-| `schema-hospitality.json` | **Source of truth.** All vertex/edge type declarations. |
-| `section-map.json` | Maps prompt sections A–G to vertex types, edge patterns, and ID conventions. |
-| `provenance-spec.json` | Full provenance rules, confidence levels, tacit knowledge patterns. |
-| `validation_rules.json` | 17 validation rules (delta + session-close, hard/soft/advisory). |
-| `documentation.md` | **This file.** Human-readable reference. Not loaded by any code. |
+| `schema hospitality.json` | **Authored source of truth.** All vertex/edge type declarations. |
+| `section map.json` | Maps prompt sections A–G to vertex types, edge patterns, and ID conventions. |
+| `provenance spec.json` | Full provenance rules, confidence levels, tacit knowledge patterns. |
+| `validation rules.json` | 25 validation rules (delta + session-close, hard/soft/advisory). |
+| `documentation (1).md` | **This file.** Human-readable reference. Not loaded by code. |
+| `prompt Hospitality .txt` | Canonical human-readable prompt reference. |
+| `prompt Hospitality .docx` | Export-only rendering; never loaded at runtime. |
 
 ---
 
-*This document is a point-in-time snapshot. If it conflicts with `schema-hospitality.json`, the JSON is authoritative.*
+*This document is a point-in-time snapshot. If it conflicts with `hospitality/schema hospitality.json`, the JSON is authoritative.*

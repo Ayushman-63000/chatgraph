@@ -27,7 +27,7 @@
         { "edge": "hasEpisode",  "out": "SessionSection",   "in": "TranscriptEpisode" }
       ],
       "id_seeds": {
-        "KnowledgeSession": "session:hypertension:{YYYY-MM-DD}",
+        "KnowledgeSession": "session:hypertension:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}",
         "SessionSection":   "section:{session_id}:1",
         "Person":           "person:{expert_name_slug}"
       },
@@ -65,7 +65,13 @@
         { "edge": "mentionedIn",     "out": "HypertensionConcept",    "in": "TranscriptEpisode"      },
         { "edge": "classifiedAs",    "out": "BloodPressureMeasurement","in": "HypertensionConcept"   },
         { "edge": "symptomSuggests", "out": "Symptom",                "in": "SecondaryCause"         },
-        { "edge": "conceptSupportedBy", "out": "HypertensionConcept", "in": "ProvenanceEvidence"     }
+        { "edge": "conceptSupportedBy", "out": "HypertensionConcept", "in": "ProvenanceEvidence"     },
+        { "edge": "measurementSupportedBy", "out": "BloodPressureMeasurement","in": "ProvenanceEvidence"},
+        { "edge": "criterionSupportedBy", "out": "DiagnosticCriterion","in": "ProvenanceEvidence"   },
+        { "edge": "findingSupportedBy", "out": "ClinicalFinding",     "in": "ProvenanceEvidence"     },
+        { "edge": "symptomSupportedBy", "out": "Symptom",             "in": "ProvenanceEvidence"     },
+        { "edge": "comorbiditySupportedBy", "out": "Comorbidity",     "in": "ProvenanceEvidence"     },
+        { "edge": "riskFactorSupportedBy", "out": "RiskFactor",       "in": "ProvenanceEvidence"     }
       ],
       "id_seeds": {
         "HypertensionConcept":      "concept:{name_slug}",
@@ -116,7 +122,13 @@
         { "edge": "planMonitoredBy",     "out": "FollowUpPlan",        "in": "DiagnosticTest"        },
         { "edge": "suggests",            "out": "ClinicalFinding",     "in": "SecondaryCause"        },
         { "edge": "triggers",            "out": "ClinicalFinding",     "in": "DecisionRule"          },
-        { "edge": "supportedBy",         "out": "DecisionRule",        "in": "ProvenanceEvidence"    }
+        { "edge": "supportedBy",         "out": "DecisionRule",        "in": "ProvenanceEvidence"    },
+        { "edge": "testSupportedBy",     "out": "DiagnosticTest",      "in": "ProvenanceEvidence"    },
+        { "edge": "medicationSupportedBy","out": "Medication",         "in": "ProvenanceEvidence"    },
+        { "edge": "lifestyleSupportedBy","out": "LifestyleIntervention","in": "ProvenanceEvidence"  },
+        { "edge": "followUpSupportedBy", "out": "FollowUpPlan",        "in": "ProvenanceEvidence"    },
+        { "edge": "secondaryCauseSupportedBy","out": "SecondaryCause", "in": "ProvenanceEvidence"    },
+        { "edge": "findingSupportedBy",  "out": "ClinicalFinding",     "in": "ProvenanceEvidence"    }
       ],
       "id_seeds": {
         "DecisionRule":          "rule:{if_condition_slug}",
@@ -159,7 +171,10 @@
         { "edge": "avoid",              "out": "Pitfall",                  "in": "DecisionRule"    },
         { "edge": "discussesCase",      "out": "TranscriptEpisode",        "in": "CaseScenario"    },
         { "edge": "discussesRule",      "out": "TranscriptEpisode",        "in": "DecisionRule"    },
-        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence" }
+        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence" },
+        { "edge": "reasoningPatternSupportedBy","out": "ClinicalReasoningPattern","in": "ProvenanceEvidence"},
+        { "edge": "pitfallSupportedBy", "out": "Pitfall",                  "in": "ProvenanceEvidence" },
+        { "edge": "caseSupportedBy",    "out": "CaseScenario",             "in": "ProvenanceEvidence" }
       ],
       "id_seeds": {
         "ClinicalReasoningPattern": "pattern:{name_slug}",
@@ -206,7 +221,14 @@
         { "edge": "leadsTo",            "out": "DecisionRule",             "in": "Outcome"                },
         { "edge": "patternExplainsCase","out": "ClinicalReasoningPattern", "in": "CaseScenario"           },
         { "edge": "avoid",              "out": "Pitfall",                  "in": "DecisionRule"           },
-        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence"     }
+        { "edge": "supportedBy",        "out": "DecisionRule",             "in": "ProvenanceEvidence"     },
+        { "edge": "caseSupportedBy",    "out": "CaseScenario",             "in": "ProvenanceEvidence"     },
+        { "edge": "measurementSupportedBy","out": "BloodPressureMeasurement","in": "ProvenanceEvidence" },
+        { "edge": "medicationSupportedBy","out": "Medication",             "in": "ProvenanceEvidence"     },
+        { "edge": "outcomeSupportedBy", "out": "Outcome",                  "in": "ProvenanceEvidence"     },
+        { "edge": "reasoningPatternSupportedBy","out": "ClinicalReasoningPattern","in": "ProvenanceEvidence"},
+        { "edge": "pitfallSupportedBy", "out": "Pitfall",                  "in": "ProvenanceEvidence"     },
+        { "edge": "secondaryCauseSupportedBy","out": "SecondaryCause",     "in": "ProvenanceEvidence"     }
       ],
       "id_seeds": {
         "CaseScenario":             "case:{scenario_type_slug}:{sequence}",
@@ -248,7 +270,12 @@
         { "edge": "triggers",       "out": "ClinicalFinding",    "in": "DecisionRule"       },
         { "edge": "leadsTo",        "out": "DecisionRule",       "in": "Outcome"            },
         { "edge": "contraindicated","out": "Medication",         "in": "Comorbidity"        },
-        { "edge": "supportedBy",    "out": "DecisionRule",       "in": "ProvenanceEvidence" }
+        { "edge": "supportedBy",    "out": "DecisionRule",       "in": "ProvenanceEvidence" },
+        { "edge": "criterionSupportedBy","out": "DiagnosticCriterion","in": "ProvenanceEvidence"},
+        { "edge": "medicationSupportedBy","out": "Medication",   "in": "ProvenanceEvidence" },
+        { "edge": "comorbiditySupportedBy","out": "Comorbidity", "in": "ProvenanceEvidence" },
+        { "edge": "findingSupportedBy","out": "ClinicalFinding", "in": "ProvenanceEvidence" },
+        { "edge": "outcomeSupportedBy","out": "Outcome",         "in": "ProvenanceEvidence" }
       ],
       "id_seeds": {
         "DecisionRule":      "rule:{if_condition_slug}",
@@ -284,7 +311,10 @@
         { "edge": "modulatedBy",             "out": "ContextualConstraint", "in": "DecisionRule"  },
         { "edge": "constraintModulatesPlan", "out": "ContextualConstraint", "in": "FollowUpPlan"  },
         { "edge": "leadsTo",                 "out": "DecisionRule",         "in": "Outcome"       },
-        { "edge": "supportedBy",             "out": "DecisionRule",         "in": "ProvenanceEvidence" }
+        { "edge": "supportedBy",             "out": "DecisionRule",         "in": "ProvenanceEvidence" },
+        { "edge": "constraintSupportedBy",   "out": "ContextualConstraint", "in": "ProvenanceEvidence" },
+        { "edge": "followUpSupportedBy",     "out": "FollowUpPlan",         "in": "ProvenanceEvidence" },
+        { "edge": "outcomeSupportedBy",      "out": "Outcome",              "in": "ProvenanceEvidence" }
       ],
       "id_seeds": {
         "ContextualConstraint": "constraint:{context_slug}:{sequence}"
@@ -295,7 +325,7 @@
 
   "global_extractor_rules": {
     "vertex_reuse": "Always check the known vertex ID cache before emitting a new vertex. If the same concept was extracted in a prior section, add edges to the existing vertex — never duplicate.",
-    "provenance_required": "Every extracted knowledge vertex (not session/transcript infrastructure) must have at least one outgoing supportedBy or conceptSupportedBy edge to a ProvenanceEvidence node in the same delta.",
+    "provenance_required": "Every extracted knowledge vertex (not session/transcript infrastructure) must have its label-specific outgoing provenance edge to a ProvenanceEvidence node in the same delta, as defined by provenance spec.json.",
     "one_delta_per_turn": "Emit one delta per conversational turn. Do not batch multiple turns into one delta.",
     "id_format": "All IDs are lowercase, hyphen-separated slugs. No spaces, no special characters.",
     "session_root_first": "KnowledgeSession must be written to the graph before any other vertex in Section A. The extractor must not emit downstream vertices if the session root write fails."

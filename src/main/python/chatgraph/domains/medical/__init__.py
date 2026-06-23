@@ -36,6 +36,7 @@ DOMAIN = Domain(
     conversation_prompt_path=Path(agent_prompt.__file__).resolve(),
     extractor_prompt_path=Path(extractor_prompt.__file__).resolve(),
     section_map_path=None,
+    provenance_spec_path=None,
     validation_rules_path=None,
     agent_system_prompt=AGENT_SYSTEM_PROMPT,
     extractor_prompt_intro=EXTRACTOR_PROMPT_INTRO,

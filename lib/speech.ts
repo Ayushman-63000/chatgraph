@@ -42,13 +42,19 @@ export function createSpeechRecognition(
   recognition.continuous = false;
   recognition.interimResults = true;
   recognition.lang = "en-US";
+  let finalTextEmitted = false;
   recognition.onresult = (event) => {
+    if (finalTextEmitted) return;
     let transcript = "";
     for (let index = 0; index < event.results.length; index += 1) {
       transcript += event.results[index][0]?.transcript ?? "";
     }
     const last = event.results[event.results.length - 1];
-    if (last?.isFinal) onFinalText(transcript.trim());
+    const finalText = transcript.trim();
+    if (last?.isFinal && finalText) {
+      finalTextEmitted = true;
+      onFinalText(finalText);
+    }
   };
   recognition.onend = onEnd;
   recognition.onerror = onEnd;

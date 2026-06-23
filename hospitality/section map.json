@@ -28,11 +28,11 @@
         { "edge": "hasEpisode",  "out": "SessionSection",   "in": "TranscriptEpisode" }
       ],
       "id_seeds": {
-        "KnowledgeSession": "session:hospitality:{YYYY-MM-DD}",
+        "KnowledgeSession": "session:hospitality:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}",
         "SessionSection":   "section:{session_id}:1",
         "Person":           "person:{expert_name_slug}"
       },
-      "extractor_instruction": "Emit the KnowledgeSession vertex first with domain='hospitality'. Then emit the Person vertex and link with hasSession. Capture businessType and yearsOperating in the KnowledgeSession properties if stated. Do not emit any experience or operations knowledge vertices in this section."
+      "extractor_instruction": "Emit the KnowledgeSession vertex first with domain='hospitality'. Then emit the Person vertex and link with hasSession. Business type and years operating remain in the TranscriptEpisode unless the canonical schema gains explicit properties for them. Do not invent properties or emit operations knowledge vertices in this section."
     },
 
     {
@@ -63,7 +63,10 @@
         { "edge": "appliesToPersona",   "out": "GuestExperiencePrinciple","in": "GuestPersona"             },
         { "edge": "standardEnforces",   "out": "ServiceStandard",         "in": "GuestExperiencePrinciple" },
         { "edge": "signalIndicates",    "out": "GuestSignal",             "in": "GuestPersona"             },
-        { "edge": "principleSupportedBy","out": "GuestExperiencePrinciple","in": "ProvenanceEvidence"      }
+        { "edge": "principleSupportedBy","out": "GuestExperiencePrinciple","in": "ProvenanceEvidence"      },
+        { "edge": "serviceStandardSupportedBy","out": "ServiceStandard",  "in": "ProvenanceEvidence"       },
+        { "edge": "guestSignalSupportedBy","out": "GuestSignal",          "in": "ProvenanceEvidence"       },
+        { "edge": "guestPersonaSupportedBy","out": "GuestPersona",        "in": "ProvenanceEvidence"       }
       ],
       "id_seeds": {
         "GuestExperiencePrinciple": "principle:{name_slug}",
@@ -106,7 +109,11 @@
         { "edge": "signalTriggers",       "out": "GuestSignal",     "in": "DecisionRule"      },
         { "edge": "discussesRule",        "out": "TranscriptEpisode","in": "DecisionRule"     },
         { "edge": "supportedBy",          "out": "DecisionRule",    "in": "ProvenanceEvidence"},
-        { "edge": "heuristicSupportedBy", "out": "TimingRule",      "in": "ProvenanceEvidence"}
+        { "edge": "timingRuleSupportedBy","out": "TimingRule",      "in": "ProvenanceEvidence"},
+        { "edge": "checkInPolicySupportedBy","out": "CheckInPolicy","in": "ProvenanceEvidence"},
+        { "edge": "checkOutPolicySupportedBy","out": "CheckOutPolicy","in": "ProvenanceEvidence"},
+        { "edge": "guestSignalSupportedBy","out": "GuestSignal",    "in": "ProvenanceEvidence"},
+        { "edge": "guestPersonaSupportedBy","out": "GuestPersona",  "in": "ProvenanceEvidence"}
       ],
       "id_seeds": {
         "CheckInPolicy":  "policy:checkin:{session_id}",
@@ -114,7 +121,7 @@
         "TimingRule":     "timing:{rule_type_slug}:{sequence}",
         "DecisionRule":   "rule:{if_condition_slug}"
       },
-      "extractor_instruction": "Emit one CheckInPolicy vertex and one CheckOutPolicy vertex per session (upsert if they already exist). For every if-then rule about arrival or departure timing (e.g. 'if guest arrives before noon and room is ready, I always allow early check-in'), emit one TimingRule vertex with ruleText set. If the timing rule has a clearly stated condition and action, also emit a DecisionRule vertex for the reasoning logic and link CheckInPolicy → TimingRule → relates to DecisionRule. Mark refinedThroughExperience=true if the expert says they learned this over time. Attach ProvenanceEvidence to every TimingRule via heuristicSupportedBy."
+      "extractor_instruction": "Emit one CheckInPolicy vertex and one CheckOutPolicy vertex per session (upsert if they already exist). For every if-then rule about arrival or departure timing, emit one TimingRule with ruleText. If it also expresses general operational logic, emit a DecisionRule and connect the TranscriptEpisode with discussesRule; do not invent a TimingRule-to-DecisionRule edge because none exists in the schema. Mark refinedThroughExperience=true when stated. Attach each emitted knowledge vertex through its label-specific provenance edge."
     },
 
     {
@@ -150,7 +157,12 @@
         { "edge": "exceptionAppliesTo","out": "ExceptionRule",      "in": "DecisionRule"       },
         { "edge": "exceptionMadeFor",  "out": "ExceptionRule",      "in": "GuestPersona"       },
         { "edge": "leadsTo",           "out": "DecisionRule",       "in": "Outcome"            },
-        { "edge": "supportedBy",       "out": "DecisionRule",       "in": "ProvenanceEvidence" }
+        { "edge": "supportedBy",       "out": "DecisionRule",       "in": "ProvenanceEvidence" },
+        { "edge": "serviceFailureSupportedBy","out": "ServiceFailure","in": "ProvenanceEvidence"},
+        { "edge": "recoveryActionSupportedBy","out": "RecoveryAction","in": "ProvenanceEvidence"},
+        { "edge": "exceptionRuleSupportedBy","out": "ExceptionRule","in": "ProvenanceEvidence"},
+        { "edge": "guestPersonaSupportedBy","out": "GuestPersona","in": "ProvenanceEvidence"},
+        { "edge": "outcomeSupportedBy","out": "Outcome","in": "ProvenanceEvidence"}
       ],
       "id_seeds": {
         "ServiceFailure":  "failure:{name_slug}",
@@ -175,7 +187,7 @@
         "Patterns the expert has learned to trust over the years",
         "Decisions best handled by intuition rather than rigid process",
         "Personal rules balancing guest happiness, staff workload, and profitability",
-        "Timing, pricing, or exception rules refined through experience"
+        "Timing or exception rules refined through experience"
       ],
       "primary_vertex_labels": [
         "OperatingHeuristic",
@@ -194,7 +206,10 @@
         { "edge": "signalIndicates",    "out": "GuestSignal",          "in": "GuestPersona"       },
         { "edge": "leadsTo",            "out": "DecisionRule",         "in": "Outcome"            },
         { "edge": "heuristicSupportedBy","out": "OperatingHeuristic",  "in": "ProvenanceEvidence" },
-        { "edge": "supportedBy",        "out": "DecisionRule",         "in": "ProvenanceEvidence" }
+        { "edge": "supportedBy",        "out": "DecisionRule",         "in": "ProvenanceEvidence" },
+        { "edge": "guestSignalSupportedBy","out": "GuestSignal",       "in": "ProvenanceEvidence" },
+        { "edge": "guestPersonaSupportedBy","out": "GuestPersona",     "in": "ProvenanceEvidence" },
+        { "edge": "outcomeSupportedBy","out": "Outcome",               "in": "ProvenanceEvidence" }
       ],
       "id_seeds": {
         "OperatingHeuristic": "heuristic:{name_slug}",
@@ -236,7 +251,10 @@
         { "edge": "loyaltyLeadsTo",     "out": "LoyaltyDriver",       "in": "Outcome"                  },
         { "edge": "appliesToPersona",   "out": "GuestExperiencePrinciple","in": "GuestPersona"          },
         { "edge": "principleSupportedBy","out": "GuestExperiencePrinciple","in": "ProvenanceEvidence"   },
-        { "edge": "supportedBy",        "out": "LoyaltyDriver",       "in": "ProvenanceEvidence"       }
+        { "edge": "loyaltyDriverSupportedBy","out": "LoyaltyDriver",  "in": "ProvenanceEvidence"       },
+        { "edge": "emotionalMomentSupportedBy","out": "EmotionalMoment","in": "ProvenanceEvidence"     },
+        { "edge": "guestPersonaSupportedBy","out": "GuestPersona",    "in": "ProvenanceEvidence"       },
+        { "edge": "outcomeSupportedBy","out": "Outcome",              "in": "ProvenanceEvidence"       }
       ],
       "id_seeds": {
         "LoyaltyDriver":   "loyalty:{name_slug}",
@@ -274,21 +292,27 @@
       "edge_patterns": [
         { "edge": "modulatedBy",           "out": "ContextualConstraint", "in": "DecisionRule"     },
         { "edge": "constraintAffectsPolicy","out": "ContextualConstraint","in": "CheckInPolicy"    },
+        { "edge": "constraintAffectsCheckOutPolicy","out": "ContextualConstraint","in": "CheckOutPolicy" },
         { "edge": "leadsTo",               "out": "DecisionRule",         "in": "Outcome"          },
-        { "edge": "supportedBy",           "out": "DecisionRule",         "in": "ProvenanceEvidence"}
+        { "edge": "supportedBy",           "out": "DecisionRule",         "in": "ProvenanceEvidence"},
+        { "edge": "contextualConstraintSupportedBy","out": "ContextualConstraint","in": "ProvenanceEvidence"},
+        { "edge": "checkInPolicySupportedBy","out": "CheckInPolicy","in": "ProvenanceEvidence"},
+        { "edge": "checkOutPolicySupportedBy","out": "CheckOutPolicy","in": "ProvenanceEvidence"},
+        { "edge": "serviceStandardSupportedBy","out": "ServiceStandard","in": "ProvenanceEvidence"},
+        { "edge": "outcomeSupportedBy","out": "Outcome","in": "ProvenanceEvidence"}
       ],
       "id_seeds": {
         "ContextualConstraint": "constraint:{context_slug}:{sequence}",
         "Outcome":              "outcome:context:{sequence}"
       },
-      "extractor_instruction": "For each context-dependent modification (e.g. 'in peak season I never allow early check-in', 'in low staffing periods I simplify our turndown service'), emit one ContextualConstraint vertex with the relevant fields set (seasonality, location, staffingFactor, customerMix, operationalBottleneck). Link to the affected DecisionRule via modulatedBy, or to CheckInPolicy/CheckOutPolicy via constraintAffectsPolicy. Reuse existing DecisionRule, CheckInPolicy, and CheckOutPolicy vertex IDs from prior sections — this section enriches existing nodes, not creates new operational concepts. If the expert describes a system-level insight, emit an Outcome vertex with outcomeType='system_insight' and link via leadsTo."
+      "extractor_instruction": "For each context-dependent modification, emit one ContextualConstraint with relevant fields. Link to DecisionRule via modulatedBy, CheckInPolicy via constraintAffectsPolicy, or CheckOutPolicy via constraintAffectsCheckOutPolicy. Reuse existing policy and rule IDs. If a system-level insight has an explicit causal rule, emit an Outcome with outcomeType='system_insight' and link via leadsTo. Attach every changed knowledge vertex through its label-specific provenance edge."
     }
 
   ],
 
   "global_extractor_rules": {
     "vertex_reuse": "Always check the known vertex ID cache before emitting a new vertex. GuestPersona, GuestSignal, ServiceStandard, CheckInPolicy, and CheckOutPolicy are especially prone to duplication across sections. If the same entity was extracted in a prior section, add new edges to the existing vertex ID — never emit a duplicate.",
-    "provenance_required": "Every extracted knowledge vertex (not session/transcript infrastructure) must have at least one outgoing supportedBy, principleSupportedBy, or heuristicSupportedBy edge to a ProvenanceEvidence node in the same delta.",
+    "provenance_required": "Every extracted knowledge vertex (not session/transcript infrastructure) must have its label-specific outgoing provenance edge to a ProvenanceEvidence node in the same delta, as defined by provenance spec.json.",
     "one_delta_per_turn": "Emit one delta per expert conversational turn. Do not batch multiple turns.",
     "id_format": "All IDs are lowercase, hyphen-separated slugs with colon-separated namespaces. No spaces, no special characters other than hyphens and colons.",
     "policy_vertices_are_singleton": "CheckInPolicy and CheckOutPolicy are session singletons. Emit them once in Section C and upsert (add properties/edges) in later sections. Never emit a second CheckInPolicy or CheckOutPolicy vertex.",

@@ -150,7 +150,7 @@ class DomainRegistryTests(unittest.TestCase):
         speech = (ROOT / "lib/speech.ts").read_text(encoding="utf-8")
 
         self.assertIn('aria-label="Play this reply"', page)
-        self.assertIn("await playMessage(session.messages[0]?.content", page)
+        self.assertIn("void speak(opening.content)", page)
         self.assertIn("Voice playback was blocked or unavailable", speech)
 
 

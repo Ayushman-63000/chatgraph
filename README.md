@@ -136,7 +136,8 @@ on dedicated worker threads bridged into the event loop.
 External services and processes:
 
 - Local: Gremlin Server on `ws://localhost:8182/gremlin` (in-process
-  TinkerGraph, string ids). gdotv reads from the same endpoint.
+  `TinkerTransactionGraph`, string ids). Each delta commits or rolls back
+  atomically. gdotv reads from the same endpoint.
 - Cloud: Anthropic API (Sonnet + Haiku), Deepgram Flux (STT), OpenAI
   (TTS). All three keys are required.
 
@@ -155,7 +156,7 @@ External services and processes:
   pins above.
 - A local install of [Apache TinkerPop Gremlin Server](https://tinkerpop.apache.org/downloads.html)
   (3.7.3 tested). The bundled config files in `config/gremlin/` start an empty
-  TinkerGraph with `vertexIdManager=ANY` and a registered `g` traversal
+  `TinkerTransactionGraph` with `vertexIdManager=ANY` and a registered `g` traversal
   source.
 - A working microphone and speakers. On macOS, your terminal needs
   Microphone permission (System Settings → Privacy & Security →

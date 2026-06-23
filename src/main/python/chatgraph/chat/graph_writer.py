@@ -1,4 +1,4 @@
-"""Async wrapper around hydrapop.gremlin_bridge.hydra_to_gremlin.
+"""Transactional async wrapper around hydrapop.gremlin_bridge.hydra_to_gremlin.
 
 Owns the gremlinpython DriverRemoteConnection and exposes an async
 ``write(graph)`` that runs the synchronous Gremlin writes on a worker
@@ -83,6 +83,10 @@ class GremlinWriter:
             # Touch the server so a failure surfaces here, not on the
             # first write.
             g.V().limit(1).to_list()
+            # Fail closed. Atomic deltas require a transaction-capable graph.
+            tx = g.tx()
+            tx.begin()
+            tx.rollback()
             return conn, g
 
         try:
@@ -181,7 +185,14 @@ class GremlinWriter:
                 graph = item
 
             def _do_write(g=graph):
-                hydra_to_gremlin(g, self._g)
+                tx = self._g.tx()
+                transactional_g = tx.begin()
+                try:
+                    hydra_to_gremlin(g, transactional_g)
+                    tx.commit()
+                except Exception:
+                    tx.rollback()
+                    raise
 
             try:
                 await loop.run_in_executor(None, _do_write)

@@ -2,7 +2,11 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { getDomain, isDomainId } from "@/lib/domains";
 import { extractGraphDelta } from "@/lib/server/extract";
-import { graphMatchesDomain } from "@/lib/schema";
+import {
+  activeSectionInstruction,
+  activeSectionOrder,
+  graphMatchesDomain
+} from "@/lib/schema";
 import type { ChatMessage, ChatRequest, GraphDelta } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,7 +53,13 @@ export async function POST(request: Request) {
 
   const openai = new OpenAI({ apiKey });
   const domain = getDomain(body.domainId);
-  const agentPromise = runAgent(openai, body.messages, domain.conversationPrompt);
+  const sectionOrder = activeSectionOrder(body.domainId, body.graph, body.messages);
+  const agentPromise = runAgent(
+    openai,
+    body.messages,
+    domain.conversationPrompt,
+    activeSectionInstruction(body.domainId, sectionOrder)
+  );
   const extractorPromise = extractGraphDelta(openai, latestUser.content, body);
   const [agentResult, extractorResult] = await Promise.allSettled([
     agentPromise,
@@ -85,14 +95,20 @@ export async function POST(request: Request) {
 async function runAgent(
   openai: OpenAI,
   messages: ChatMessage[],
-  systemPrompt: string
+  systemPrompt: string,
+  sectionInstruction: string
 ): Promise<string> {
   const normalizedMessages = normalizeOpenAIMessages(messages);
   const response = await openai.chat.completions.create({
     model: process.env.CHATGRAPH_AGENT_MODEL || DEFAULT_AGENT_MODEL,
     max_completion_tokens: 420,
     messages: [
-      { role: "system", content: systemPrompt },
+      {
+        role: "system",
+        content: sectionInstruction
+          ? `${systemPrompt}\n\n${sectionInstruction}`
+          : systemPrompt
+      },
       ...normalizedMessages.slice(-40).map((message) => ({
         role: message.role as "user" | "assistant",
         content: message.content

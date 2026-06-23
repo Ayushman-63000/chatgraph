@@ -9,6 +9,7 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   createdAt: number;
+  sourceId?: string;
 }
 
 export interface GraphVertex {

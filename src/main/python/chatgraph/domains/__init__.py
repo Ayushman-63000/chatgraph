@@ -60,6 +60,7 @@ class Domain:
     conversation_prompt_path: Path
     extractor_prompt_path: Path
     section_map_path: Path | None
+    provenance_spec_path: Path | None
     validation_rules_path: Path | None
     agent_system_prompt: str
     extractor_prompt_intro: str

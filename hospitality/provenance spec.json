@@ -6,7 +6,7 @@
   "provenance_vertex": {
     "label": "ProvenanceEvidence",
     "id_convention": "prov:{episode_id}:{sequence}",
-    "id_example": "prov:ep:session:hospitality:2026-06-18:5:01",
+    "id_example": "prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:5:01",
     "fields": [
       {
         "field": "traceText",
@@ -55,26 +55,26 @@
 
   "attachment_rules": {
     "rule": "EVERY extracted knowledge vertex must have at least one outgoing provenance edge to a ProvenanceEvidence vertex in the same delta as the extraction. The edge label varies by vertex type — use the table below.",
-    "failure_action": "warn_and_continue",
-    "failure_description": "If a knowledge vertex is emitted without a provenance edge, the validator emits a WARNING and writes the vertex anyway. The session is flagged for post-hoc provenance repair. The delta is NOT rejected.",
+    "failure_action": "reject_delta_and_retry",
+    "failure_description": "A knowledge vertex without its label-specific provenance edge is rejected and returned to the extractor for correction.",
 
     "edge_label_by_vertex": {
       "GuestExperiencePrinciple": "principleSupportedBy",
-      "ServiceStandard":          "supportedBy",
-      "GuestSignal":              "supportedBy",
-      "GuestPersona":             "supportedBy",
-      "CheckInPolicy":            "supportedBy",
-      "CheckOutPolicy":           "supportedBy",
-      "TimingRule":               "heuristicSupportedBy",
-      "ServiceFailure":           "supportedBy",
-      "RecoveryAction":           "supportedBy",
-      "ExceptionRule":            "supportedBy",
+      "ServiceStandard":          "serviceStandardSupportedBy",
+      "GuestSignal":              "guestSignalSupportedBy",
+      "GuestPersona":             "guestPersonaSupportedBy",
+      "CheckInPolicy":            "checkInPolicySupportedBy",
+      "CheckOutPolicy":           "checkOutPolicySupportedBy",
+      "TimingRule":               "timingRuleSupportedBy",
+      "ServiceFailure":           "serviceFailureSupportedBy",
+      "RecoveryAction":           "recoveryActionSupportedBy",
+      "ExceptionRule":            "exceptionRuleSupportedBy",
       "DecisionRule":             "supportedBy",
       "OperatingHeuristic":       "heuristicSupportedBy",
-      "LoyaltyDriver":            "supportedBy",
-      "EmotionalMoment":          "supportedBy",
-      "ContextualConstraint":     "supportedBy",
-      "Outcome":                  "supportedBy"
+      "LoyaltyDriver":            "loyaltyDriverSupportedBy",
+      "EmotionalMoment":          "emotionalMomentSupportedBy",
+      "ContextualConstraint":     "contextualConstraintSupportedBy",
+      "Outcome":                  "outcomeSupportedBy"
     },
 
     "exempt_vertex_labels": [
@@ -87,8 +87,9 @@
 
     "edge_label_rationale": {
       "principleSupportedBy": "Used exclusively for GuestExperiencePrinciple — the foundational belief layer. Kept separate to allow downstream queries like 'show me all principles with high-confidence provenance' without conflating with operational rules.",
-      "heuristicSupportedBy": "Used for OperatingHeuristic and TimingRule — tacit, experience-refined knowledge that is distinct from explicit decision rules. Keeping a separate edge allows the query layer to distinguish 'textbook' rules from 'lived-experience' heuristics.",
-      "supportedBy": "Default provenance edge for all remaining knowledge vertex types — operational rules, recovery actions, loyalty drivers, signals, personas, constraints, and outcomes."
+      "heuristicSupportedBy": "Used for OperatingHeuristic — tacit, experience-refined knowledge distinct from explicit decision rules.",
+      "supportedBy": "Used for DecisionRule. Every other knowledge label has its own typed provenance edge because Hydra GraphSchema edges have one fixed out-vertex type.",
+      "typed_provenance_edges": "Each remaining knowledge vertex uses a label-specific *SupportedBy edge. This preserves direct provenance while satisfying Hydra's fixed endpoint typing."
     }
   },
 
@@ -115,7 +116,7 @@
 
   "inferred_provenance": {
     "description": "Hospitality expertise is heavily pattern-based — experts often state the same rule across multiple anecdotes without ever saying it once explicitly. These synthesized nodes require inferred provenance.",
-    "rule": "Set confidence='inferred'. In traceText, write a brief synthesis statement that: (1) names the contributing episode IDs, (2) describes the common pattern across those episodes. Example: 'Synthesized from ep:session:hospitality:2026-06-18:4, :7, :12 — expert consistently described letting room-ready guests check in early regardless of official time, implying an informal early check-in rule.'",
+    "rule": "Set confidence='inferred'. In traceText, name at least two contributing episode IDs and describe their common pattern.",
     "sourceEpisode": "Set to the episode ID of the most recent contributing utterance.",
     "frequency_threshold": "Use inferred confidence only when the synthesized rule appears across 2 or more separate utterances. A single vague statement should be confidence='low', not 'inferred'."
   },
@@ -154,9 +155,9 @@
     "pattern": "prov:{episode_id}:{sequence}",
     "sequence": "Zero-padded 2-digit integer starting at 01, incrementing per ProvenanceEvidence node emitted within the same episode.",
     "examples": [
-      "prov:ep:session:hospitality:2026-06-18:3:01",
-      "prov:ep:session:hospitality:2026-06-18:3:02",
-      "prov:ep:session:hospitality:2026-06-18:11:01"
+      "prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:3:01",
+      "prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:3:02",
+      "prov:ep:session:hospitality:20260618t015000000z:a1b2c3d4:11:01"
     ]
   },
 

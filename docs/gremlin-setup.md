@@ -1,5 +1,10 @@
 # Gremlin Server config for chatgraph
 
+The bundled graph uses `TinkerTransactionGraph`, not plain `TinkerGraph`.
+Each extracted delta runs in one remote transaction: all vertices and edges
+commit together, or all changes roll back. The writer refuses a backend that
+cannot open and roll back a transaction.
+
 Use these configs with a local Apache TinkerPop Gremlin Server install
 (version 3.7.3 tested). Download the server tarball from
 [tinkerpop.apache.org/downloads](https://tinkerpop.apache.org/downloads.html),
@@ -12,10 +17,11 @@ the script itself reads.
 ## Files
 
 - `chatgraph-gremlin-server.yaml` — main server config. Binds to
-  `ws://localhost:8182/gremlin`. Empty TinkerGraph; GraphSON 3 and
+  `ws://localhost:8182/gremlin`. Empty transactional TinkerGraph; GraphSON 3 and
   GraphBinary serializers.
 - `chatgraph-tinkergraph.properties` — graph config. Uses
-  `vertexIdManager=ANY` so the schema's string ids are accepted.
+  `TinkerTransactionGraph` and `vertexIdManager=ANY` so atomic writes and
+  schema string ids are supported.
 - `chatgraph-init.groovy` — server init script. Registers a global
   traversal source `g` over the configured `graph` so remote clients
   can `traversal().with_remote(connection)` without further setup.

@@ -18,7 +18,11 @@ import { GraphView } from "@/components/GraphView";
 import { DOMAIN_OPTIONS, getDomain } from "@/lib/domains";
 import { exportSessionJson, exportTranscriptJsonl, exportTranscriptTxt } from "@/lib/export";
 import { OpenAIRealtimeSession, type RealtimeStatus } from "@/lib/realtime";
-import { mergeDelta } from "@/lib/schema";
+import {
+  activeSectionInstruction,
+  activeSectionOrder,
+  mergeDelta
+} from "@/lib/schema";
 import { clearSession, loadSession, saveSession } from "@/lib/storage";
 import { createSpeechRecognition, speak, speechRecognitionAvailable, stopSpeaking } from "@/lib/speech";
 import type { ChatMessage, ChatResponse, ChatSession, DomainId } from "@/lib/types";
@@ -34,6 +38,8 @@ export default function Home() {
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition>>(null);
   const realtimeRef = useRef<OpenAIRealtimeSession | null>(null);
   const sessionRef = useRef<ChatSession | null>(null);
+  const sendingRef = useRef(false);
+  const realtimeStartingRef = useRef(false);
   const openingAudioAttemptedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -77,7 +83,15 @@ export default function Home() {
 
   async function submit(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || !session || isSending) return;
+    const currentSession = sessionRef.current;
+    if (
+      !trimmed ||
+      !currentSession ||
+      sendingRef.current ||
+      realtimeRef.current ||
+      realtimeStatus !== "idle"
+    ) return;
+    sendingRef.current = true;
     setInput("");
     setWarnings([]);
     setIsSending(true);
@@ -89,9 +103,10 @@ export default function Home() {
       createdAt: Date.now()
     };
     const optimistic = {
-      ...session,
-      messages: [...session.messages, userMessage]
+      ...currentSession,
+      messages: [...currentSession.messages, userMessage]
     };
+    sessionRef.current = optimistic;
     setSession(optimistic);
 
     try {
@@ -107,11 +122,13 @@ export default function Home() {
       if (!response.ok) throw new Error(await response.text());
       const data = (await response.json()) as ChatResponse;
       const nextGraph = mergeDelta(optimistic.graph, data.delta);
-      setSession({
+      const next = {
         ...optimistic,
         graph: nextGraph,
         messages: [...optimistic.messages, data.assistantMessage]
-      });
+      };
+      sessionRef.current = next;
+      setSession(next);
       setWarnings(data.warnings ?? []);
       if (optimistic.settings.autoSpeak) {
         const voice = await speak(data.assistantMessage.content);
@@ -126,23 +143,34 @@ export default function Home() {
         content: "I couldn't reach the assistant service. Please try again in a moment.",
         createdAt: Date.now()
       };
-      setSession({
+      const next = {
         ...optimistic,
         messages: [...optimistic.messages, assistantMessage]
-      });
+      };
+      sessionRef.current = next;
+      setSession(next);
     } finally {
+      sendingRef.current = false;
       setIsSending(false);
     }
   }
 
-  function appendMessage(role: ChatMessage["role"], content: string): ChatSession | null {
+  function appendMessage(
+    role: ChatMessage["role"],
+    content: string,
+    sourceId?: string
+  ): ChatSession | null {
     const current = sessionRef.current;
     if (!current) return null;
+    if (sourceId && current.messages.some((message) => message.sourceId === sourceId)) {
+      return null;
+    }
     const message: ChatMessage = {
       id: crypto.randomUUID(),
       role,
       content,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      sourceId
     };
     const next = {
       ...current,
@@ -176,6 +204,20 @@ export default function Home() {
       sessionRef.current = next;
       setSession(next);
       setWarnings(data.warnings ?? []);
+      const sectionOrder = activeSectionOrder(
+        next.domainId,
+        next.graph,
+        next.messages
+      );
+      const sectionInstruction = activeSectionInstruction(
+        next.domainId,
+        sectionOrder
+      );
+      if (sectionInstruction) {
+        realtimeRef.current?.updateInstructions(
+          `${getDomain(next.domainId).conversationPrompt}\n\n${sectionInstruction}`
+        );
+      }
     } catch {
       setWarnings(["Voice transcript saved, but graph extraction failed for that turn."]);
     }
@@ -226,7 +268,8 @@ export default function Home() {
   }
 
   async function toggleRealtime() {
-    if (realtimeStatus !== "idle") {
+    if (realtimeStartingRef.current) return;
+    if (realtimeRef.current) {
       realtimeRef.current?.stop();
       realtimeRef.current = null;
       return;
@@ -237,25 +280,32 @@ export default function Home() {
     setWarnings([]);
 
     if (!session) return;
-    if (!session.messages.some((message) => message.role === "user")) {
-      await playMessage(session.messages[0]?.content ?? getDomain(session.domainId).openingLine);
-    }
+    realtimeStartingRef.current = true;
     const realtime = new OpenAIRealtimeSession(
       {
-        onStatus: setRealtimeStatus,
+        onStatus: (status) => {
+          setRealtimeStatus(status);
+          if (status === "idle" && realtimeRef.current === realtime) {
+            realtimeRef.current = null;
+          }
+        },
         onError: (message) => setWarnings([message]),
-        onUserTranscript: (text) => {
-          const next = appendMessage("user", text);
+        onUserTranscript: (text, sourceId) => {
+          const next = appendMessage("user", text, sourceId);
           if (next) void extractVoiceTurn(text, next);
         },
-        onAssistantTranscript: (text) => {
-          appendMessage("assistant", text);
+        onAssistantTranscript: (text, sourceId) => {
+          appendMessage("assistant", text, sourceId);
         }
       },
       session.domainId
     );
     realtimeRef.current = realtime;
-    await realtime.start();
+    try {
+      await realtime.start();
+    } finally {
+      realtimeStartingRef.current = false;
+    }
   }
 
   async function reset() {
@@ -429,12 +479,12 @@ export default function Home() {
               placeholder={domain.composerPlaceholder}
               aria-label={`${domain.label} ${domain.participantLabel} response`}
               rows={2}
-              disabled={isSending}
+              disabled={isSending || realtimeStatus !== "idle"}
             />
             <button
               type="submit"
               className="send-button"
-              disabled={!input.trim() || isSending}
+              disabled={!input.trim() || isSending || realtimeStatus !== "idle"}
               title="Send"
               aria-label="Send"
             >

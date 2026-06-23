@@ -486,6 +486,14 @@
       }
     },
     {
+      "@key": "constraintAffectsCheckOutPolicy",
+      "@value": {
+        "label": "constraintAffectsCheckOutPolicy",
+        "outV": "ContextualConstraint",
+        "inV": "CheckOutPolicy"
+      }
+    },
+    {
       "@key": "supportedBy",
       "@value": {
         "label": "supportedBy",
@@ -506,6 +514,110 @@
       "@value": {
         "label": "heuristicSupportedBy",
         "outV": "OperatingHeuristic",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "serviceStandardSupportedBy",
+      "@value": {
+        "label": "serviceStandardSupportedBy",
+        "outV": "ServiceStandard",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "guestSignalSupportedBy",
+      "@value": {
+        "label": "guestSignalSupportedBy",
+        "outV": "GuestSignal",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "guestPersonaSupportedBy",
+      "@value": {
+        "label": "guestPersonaSupportedBy",
+        "outV": "GuestPersona",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "checkInPolicySupportedBy",
+      "@value": {
+        "label": "checkInPolicySupportedBy",
+        "outV": "CheckInPolicy",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "checkOutPolicySupportedBy",
+      "@value": {
+        "label": "checkOutPolicySupportedBy",
+        "outV": "CheckOutPolicy",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "timingRuleSupportedBy",
+      "@value": {
+        "label": "timingRuleSupportedBy",
+        "outV": "TimingRule",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "serviceFailureSupportedBy",
+      "@value": {
+        "label": "serviceFailureSupportedBy",
+        "outV": "ServiceFailure",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "recoveryActionSupportedBy",
+      "@value": {
+        "label": "recoveryActionSupportedBy",
+        "outV": "RecoveryAction",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "exceptionRuleSupportedBy",
+      "@value": {
+        "label": "exceptionRuleSupportedBy",
+        "outV": "ExceptionRule",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "loyaltyDriverSupportedBy",
+      "@value": {
+        "label": "loyaltyDriverSupportedBy",
+        "outV": "LoyaltyDriver",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "emotionalMomentSupportedBy",
+      "@value": {
+        "label": "emotionalMomentSupportedBy",
+        "outV": "EmotionalMoment",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "contextualConstraintSupportedBy",
+      "@value": {
+        "label": "contextualConstraintSupportedBy",
+        "outV": "ContextualConstraint",
+        "inV": "ProvenanceEvidence"
+      }
+    },
+    {
+      "@key": "outcomeSupportedBy",
+      "@value": {
+        "label": "outcomeSupportedBy",
+        "outV": "Outcome",
         "inV": "ProvenanceEvidence"
       }
     }

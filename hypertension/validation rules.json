@@ -23,7 +23,7 @@
       "rule_id": "R002",
       "name": "no_unknown_vertex_labels",
       "category": "schema_conformance",
-      "description": "Every vertex in the delta must have a label that exists in schema.json vertices.",
+      "description": "Every vertex in the delta must have a label declared in hypertension/hypertension schema.json.",
       "allowed_vertex_labels": [
         "Person",
         "KnowledgeSession",
@@ -50,14 +50,14 @@
         "Outcome"
       ],
       "action_on_failure": "reject_delta_and_retry",
-      "error_message": "Unknown vertex label '{label}'. Only labels declared in schema.json are permitted."
+      "error_message": "Unknown vertex label '{label}'. Only labels declared in hypertension/hypertension schema.json are permitted."
     },
 
     {
       "rule_id": "R003",
       "name": "no_unknown_edge_labels",
       "category": "schema_conformance",
-      "description": "Every edge in the delta must have a label that exists in schema.json edges.",
+      "description": "Every edge in the delta must have a label declared in hypertension/hypertension schema.json.",
       "allowed_edge_labels": [
         "hasSession",
         "hasSection",
@@ -86,17 +86,33 @@
         "modulatedBy",
         "constraintModulatesPlan",
         "supportedBy",
-        "conceptSupportedBy"
+        "conceptSupportedBy",
+        "measurementSupportedBy",
+        "criterionSupportedBy",
+        "findingSupportedBy",
+        "symptomSupportedBy",
+        "comorbiditySupportedBy",
+        "riskFactorSupportedBy",
+        "secondaryCauseSupportedBy",
+        "testSupportedBy",
+        "medicationSupportedBy",
+        "lifestyleSupportedBy",
+        "followUpSupportedBy",
+        "reasoningPatternSupportedBy",
+        "pitfallSupportedBy",
+        "caseSupportedBy",
+        "constraintSupportedBy",
+        "outcomeSupportedBy"
       ],
       "action_on_failure": "reject_delta_and_retry",
-      "error_message": "Unknown edge label '{label}'. Only edge labels declared in schema.json are permitted."
+      "error_message": "Unknown edge label '{label}'. Only labels declared in hypertension/hypertension schema.json are permitted."
     },
 
     {
       "rule_id": "R004",
       "name": "required_properties_present",
       "category": "schema_conformance",
-      "description": "Every vertex must have all properties marked required:true in schema.json. Missing required properties are a hard failure.",
+      "description": "Every vertex must have all properties marked required:true in hypertension/hypertension schema.json.",
       "required_properties_by_label": {
         "KnowledgeSession":         ["domain"],
         "SessionSection":           ["sectionType", "order"],
@@ -125,7 +141,7 @@
       "rule_id": "R005",
       "name": "correct_property_types",
       "category": "schema_conformance",
-      "description": "Property values must match the type declared in schema.json. No implicit coercion is performed.",
+      "description": "Property values must match the type declared in hypertension/hypertension schema.json. No implicit coercion is performed.",
       "type_rules": [
         {
           "vertex_label": "SessionSection",
@@ -184,7 +200,7 @@
       "rule_id": "R006",
       "name": "edge_endpoint_type_conformance",
       "category": "schema_conformance",
-      "description": "Every edge must connect the exact (out-label, in-label) pair declared in schema.json. Connecting wrong vertex types is a hard failure.",
+      "description": "Every edge must connect the exact endpoint pair declared in hypertension/hypertension schema.json.",
       "endpoint_rules": [
         { "edge": "hasSession",             "out": "Person",                   "in": "KnowledgeSession"        },
         { "edge": "hasSection",             "out": "KnowledgeSession",         "in": "SessionSection"          },
@@ -213,7 +229,23 @@
         { "edge": "modulatedBy",            "out": "ContextualConstraint",     "in": "DecisionRule"            },
         { "edge": "constraintModulatesPlan","out": "ContextualConstraint",     "in": "FollowUpPlan"            },
         { "edge": "supportedBy",            "out": "DecisionRule",             "in": "ProvenanceEvidence"      },
-        { "edge": "conceptSupportedBy",     "out": "HypertensionConcept",      "in": "ProvenanceEvidence"      }
+        { "edge": "conceptSupportedBy",     "out": "HypertensionConcept",      "in": "ProvenanceEvidence"      },
+        { "edge": "measurementSupportedBy", "out": "BloodPressureMeasurement","in": "ProvenanceEvidence"      },
+        { "edge": "criterionSupportedBy",   "out": "DiagnosticCriterion",      "in": "ProvenanceEvidence"      },
+        { "edge": "findingSupportedBy",     "out": "ClinicalFinding",          "in": "ProvenanceEvidence"      },
+        { "edge": "symptomSupportedBy",     "out": "Symptom",                  "in": "ProvenanceEvidence"      },
+        { "edge": "comorbiditySupportedBy", "out": "Comorbidity",              "in": "ProvenanceEvidence"      },
+        { "edge": "riskFactorSupportedBy",  "out": "RiskFactor",               "in": "ProvenanceEvidence"      },
+        { "edge": "secondaryCauseSupportedBy","out": "SecondaryCause",         "in": "ProvenanceEvidence"      },
+        { "edge": "testSupportedBy",        "out": "DiagnosticTest",           "in": "ProvenanceEvidence"      },
+        { "edge": "medicationSupportedBy",  "out": "Medication",               "in": "ProvenanceEvidence"      },
+        { "edge": "lifestyleSupportedBy",   "out": "LifestyleIntervention",    "in": "ProvenanceEvidence"      },
+        { "edge": "followUpSupportedBy",    "out": "FollowUpPlan",              "in": "ProvenanceEvidence"      },
+        { "edge": "reasoningPatternSupportedBy","out": "ClinicalReasoningPattern","in": "ProvenanceEvidence"   },
+        { "edge": "pitfallSupportedBy",     "out": "Pitfall",                  "in": "ProvenanceEvidence"      },
+        { "edge": "caseSupportedBy",        "out": "CaseScenario",             "in": "ProvenanceEvidence"      },
+        { "edge": "constraintSupportedBy",  "out": "ContextualConstraint",     "in": "ProvenanceEvidence"      },
+        { "edge": "outcomeSupportedBy",     "out": "Outcome",                  "in": "ProvenanceEvidence"      }
       ],
       "action_on_failure": "reject_delta_and_retry",
       "error_message": "Edge '{edge}' connects wrong vertex types. Expected out='{expected_out}' → in='{expected_in}'. Got out='{actual_out}' → in='{actual_in}'."
@@ -254,7 +286,7 @@
       "rule_id": "R010",
       "name": "section_order_is_positive_integer",
       "category": "data_quality",
-      "description": "SessionSection.order must be a positive integer between 1 and 7 inclusive, matching the 7-section structure defined in section_map.json.",
+      "description": "SessionSection.order must be a positive integer from 1 through 7, matching hypertension/section map.json.",
       "applies_to": "SessionSection",
       "check": "order >= 1 AND order <= 7",
       "action_on_failure": "reject_delta_and_retry",
@@ -310,7 +342,7 @@
       "rule_id": "R014",
       "name": "provenance_attached_to_knowledge_vertices",
       "category": "provenance_quality",
-      "description": "Every knowledge vertex emitted in this delta should have at least one outgoing supportedBy or conceptSupportedBy edge to a ProvenanceEvidence vertex. This is a soft rule — violations emit a warning but do not block the write.",
+      "description": "Every knowledge vertex emitted in this delta must have its label-specific outgoing provenance edge to a ProvenanceEvidence vertex.",
       "knowledge_vertex_labels": [
         "HypertensionConcept",
         "BloodPressureMeasurement",
@@ -331,8 +363,28 @@
         "ContextualConstraint",
         "Outcome"
       ],
-      "action_on_failure": "warn_and_continue",
-      "error_message": "Vertex '{label}' (id='{id}') has no provenance edge. Add a supportedBy or conceptSupportedBy edge to a ProvenanceEvidence vertex. The vertex will be written and flagged for provenance repair."
+      "provenance_edge_by_label": {
+        "HypertensionConcept": "conceptSupportedBy",
+        "BloodPressureMeasurement": "measurementSupportedBy",
+        "DiagnosticCriterion": "criterionSupportedBy",
+        "ClinicalFinding": "findingSupportedBy",
+        "Symptom": "symptomSupportedBy",
+        "Comorbidity": "comorbiditySupportedBy",
+        "RiskFactor": "riskFactorSupportedBy",
+        "SecondaryCause": "secondaryCauseSupportedBy",
+        "DiagnosticTest": "testSupportedBy",
+        "Medication": "medicationSupportedBy",
+        "LifestyleIntervention": "lifestyleSupportedBy",
+        "FollowUpPlan": "followUpSupportedBy",
+        "DecisionRule": "supportedBy",
+        "ClinicalReasoningPattern": "reasoningPatternSupportedBy",
+        "Pitfall": "pitfallSupportedBy",
+        "CaseScenario": "caseSupportedBy",
+        "ContextualConstraint": "constraintSupportedBy",
+        "Outcome": "outcomeSupportedBy"
+      },
+      "action_on_failure": "reject_delta_and_retry",
+      "error_message": "Vertex '{label}' (id='{id}') has no correct label-specific provenance edge to ProvenanceEvidence."
     },
 
     {
@@ -362,11 +414,11 @@
       "R010 section_order_is_positive_integer",
       "R012 decision_rule_text_not_empty",
       "R013 provenance_trace_text_not_generic",
+      "R014 provenance_attached_to_knowledge_vertices",
       "R015 no_self_referencing_edges"
     ],
     "soft_warnings": [
-      "R011 bp_values_physiologically_plausible",
-      "R014 provenance_attached_to_knowledge_vertices"
+      "R011 bp_values_physiologically_plausible"
     ]
   }
 }

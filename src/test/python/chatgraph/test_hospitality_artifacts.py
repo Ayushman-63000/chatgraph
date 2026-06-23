@@ -20,7 +20,7 @@ def test_runtime_schema_normalizes_supplied_schema_without_semantic_drift() -> N
     runtime = _load(RUNTIME_SCHEMA)
 
     assert len(runtime["vertices"]) == 21
-    assert len(runtime["edges"]) == 27
+    assert len(runtime["edges"]) == 41
     assert [entry["@key"] for entry in runtime["vertices"]] == [
         entry["@key"] for entry in source["vertices"]
     ]
@@ -61,3 +61,40 @@ def test_canonical_schema_edges_reference_declared_vertices() -> None:
         assert value["in"] in labels
         assert "outV" not in value
         assert "inV" not in value
+
+
+def test_every_hospitality_knowledge_vertex_has_typed_provenance_edge() -> None:
+    schema = _load(SOURCE_DIR / "schema hospitality.json")
+    provenance = _load(SOURCE_DIR / "provenance spec.json")
+    edges = {
+        entry["@key"]: entry["@value"]
+        for entry in schema["edges"]
+    }
+
+    for vertex_label, edge_label in provenance["attachment_rules"][
+        "edge_label_by_vertex"
+    ].items():
+        edge = edges[edge_label]
+        assert edge["outV"] == vertex_label
+        assert edge["inV"] == "ProvenanceEvidence"
+
+
+def test_hospitality_required_properties_match_schema() -> None:
+    schema = _load(SOURCE_DIR / "schema hospitality.json")
+    validation = _load(SOURCE_DIR / "validation rules.json")
+    schema_required = {
+        entry["@key"]: [
+            prop["key"]
+            for prop in entry["@value"].get("properties", [])
+            if prop.get("required")
+        ]
+        for entry in schema["vertices"]
+    }
+    rule_required = next(
+        rule["required_properties_by_label"]
+        for rule in validation["rules"]
+        if rule["rule_id"] == "HR001"
+    )
+
+    for label, required in schema_required.items():
+        assert rule_required.get(label, []) == required

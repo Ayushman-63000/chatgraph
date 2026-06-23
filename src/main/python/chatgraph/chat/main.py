@@ -20,6 +20,7 @@ patient's turn proceeds normally.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -35,6 +36,7 @@ from chatgraph.chat.agent import Agent, Conversation
 from chatgraph.chat.audio import VAD, AudioInput, AudioOutput
 from chatgraph.chat.extractor import Extractor, RollingContext
 from chatgraph.chat.graph_writer import GremlinWriter
+from chatgraph.chat.section_state import next_section_order
 from chatgraph.chat.stt import DeepgramFluxSTT, FluxEvent
 from chatgraph.chat.transcript import TranscriptWriter, Utterance
 from chatgraph.chat.tts import OpenAITTS
@@ -116,6 +118,15 @@ class Coordinator:
         self._graph_writer = graph_writer
         self._domain = domain
         self._rolling = RollingContext()
+        self._extraction_lock = asyncio.Lock()
+        self._sections: dict[int, dict] = {}
+        if domain.section_map_path is not None:
+            with domain.section_map_path.open(encoding="utf-8") as handle:
+                section_map = json.load(handle)
+            self._sections = {
+                int(section["order"]): section
+                for section in section_map.get("sections", [])
+            }
 
         # Agent state and the in-flight task driving it.
         self._agent_task: asyncio.Task | None = None
@@ -153,7 +164,12 @@ class Coordinator:
 
         elif event.kind == "EagerEndOfTurn":
             # Optimistically begin preparing a reply.
-            if self._prepared_text is None:
+            # Structured expert domains must first apply the deterministic
+            # section transition from the finalized answer.
+            if (
+                not self._domain.session_infrastructure
+                and self._prepared_text is None
+            ):
                 self._begin_preparing(event.transcript)
 
         elif event.kind == "TurnResumed":
@@ -183,25 +199,36 @@ class Coordinator:
         """Per-turn instructions for the agent that depend on session
         state (currently: whether the patient has signaled they're done).
         """
+        instructions: list[str] = []
+        if self._domain.session_infrastructure and self._sections:
+            order = self._rolling.active_section_order
+            section = self._sections.get(order, {})
+            instructions.append(
+                f"ACTIVE SECTION {order}: {section.get('title', '')}\n"
+                f"{section.get('purpose', '')}\n"
+                "Stay within this section. Ask one focused question at a time. "
+                "When sufficiently covered, ask exactly: "
+                "\"Before we move on, would you like to go deeper into anything "
+                "from this section?\" Do not enter the next section until the "
+                "expert declines or confirms: "
+                "\"Is it okay to move to the next question?\""
+            )
         if self._rolling.session_done:
             if self._domain.session_infrastructure:
-                return (
+                instructions.append(
                     f"The {self._domain.participant_label} has indicated the "
                     f"{self._domain.display_label} knowledge "
                     "session is complete. Do not ask another interview "
                     "question. Briefly acknowledge them unless they resume "
                     "substantive content."
                 )
-            return (
-                "The patient has indicated they are done discussing "
-                "their headaches for now. Do NOT ask another clinical "
-                "question. Briefly and warmly acknowledge what they "
-                "said (one short sentence). If they resume substantive "
-                "clinical content later you'll be told to start asking "
-                "questions again; until then, just acknowledge whatever "
-                "they say."
-            )
-        return None
+            else:
+                instructions.append(
+                    "The patient has indicated they are done discussing "
+                    "their headaches for now. Do NOT ask another clinical "
+                    "question. Briefly acknowledge them."
+                )
+        return "\n\n".join(instructions) or None
 
     def _begin_preparing(self, partial_transcript: str) -> None:
         # Snapshot the conversation with the partial transcript as the
@@ -265,6 +292,7 @@ class Coordinator:
 
         # Phase 2: kick off graph extraction in the background. Don't
         # block the conversation; the agent reply path keeps running.
+        self._advance_section_from_reply(text)
         self._rolling.add(participant, text)
         if self._extractor is not None and self._graph_writer is not None:
             asyncio.create_task(self._extract_and_write(text))
@@ -282,7 +310,12 @@ class Coordinator:
         Fire-and-forget from the orchestrator. Logs success/failure;
         never raises.
         """
-        assert self._extractor is not None  # gated by caller
+        async with self._extraction_lock:
+            await self._extract_and_write_locked(utterance)
+
+    async def _extract_and_write_locked(self, utterance: str) -> None:
+        assert self._extractor is not None
+        await self._ensure_active_section()
         try:
             result = await self._extractor.extract(utterance, self._rolling)
         except Exception:
@@ -333,11 +366,91 @@ class Coordinator:
             return
         log.info("extractor: writing delta (%d vertices, %d edges)", n_v, n_e)
         if self._graph_writer is not None:
-            # submit() returns immediately; the writer's serial queue
-            # guarantees this delta lands after prior submitted deltas,
-            # so edges in this delta can safely reference vertices from
-            # earlier turns.
-            self._graph_writer.submit(result.delta)
+            try:
+                await self._graph_writer.write(result.delta)
+            except Exception:
+                log.exception("extractor: atomic graph write failed")
+                return
+            self._rolling.register_vertices(result.delta.vertices.values())
+
+    def _advance_section_from_reply(self, expert_text: str) -> None:
+        if not self._sections:
+            return
+        previous_agent = next(
+            (
+                turn["text"] for turn in reversed(self._rolling.as_history())
+                if turn["speaker"] == "agent"
+            ),
+            "",
+        )
+        self._rolling.active_section_order = next_section_order(
+            self._rolling.active_section_order,
+            len(self._sections),
+            previous_agent,
+            expert_text,
+        )
+
+    async def _ensure_active_section(self) -> None:
+        if (
+            not self._domain.session_infrastructure
+            or self._graph_writer is None
+            or not self._sections
+        ):
+            return
+        order = self._rolling.active_section_order
+        session_id = next(
+            (
+                vertex_id
+                for vertex_id, label in self._rolling.vertex_labels.items()
+                if label == "KnowledgeSession"
+            ),
+            None,
+        )
+        if session_id is None:
+            return
+        section_id = f"section:{session_id}:{order}"
+        if self._rolling.vertex_labels.get(section_id) == "SessionSection":
+            return
+
+        import hydra.core as core
+        import hydra.pg.model as pg
+        from hydra.dsl.python import FrozenDict
+
+        section_data = self._sections[order]
+        section_id_literal = core.LiteralString(section_id)
+        section = pg.Vertex(
+            label=pg.VertexLabel("SessionSection"),
+            id=section_id_literal,
+            properties=FrozenDict({
+                pg.PropertyKey("sectionType"): core.LiteralString(
+                    section_data["section_type"]
+                ),
+                pg.PropertyKey("order"): core.LiteralInteger(
+                    core.IntegerValueInt32(order)
+                ),
+                pg.PropertyKey("title"): core.LiteralString(
+                    section_data.get("title", f"Section {order}")
+                ),
+                pg.PropertyKey("purpose"): core.LiteralString(
+                    section_data.get("purpose", "")
+                ),
+            }),
+        )
+        edge_id = f"{session_id}-hasSection->{section_id}"
+        edge_id_literal = core.LiteralString(edge_id)
+        edge = pg.Edge(
+            label=pg.EdgeLabel("hasSection"),
+            id=edge_id_literal,
+            out=core.LiteralString(session_id),
+            in_=section_id_literal,
+            properties=FrozenDict({}),
+        )
+        delta = pg.Graph(
+            vertices=FrozenDict({section_id_literal: section}),
+            edges=FrozenDict({edge_id_literal: edge}),
+        )
+        await self._graph_writer.write(delta)
+        self._rolling.register_vertices([section])
 
     def add_agent_turn_to_context(self, text: str) -> None:
         """Record an agent reply in the rolling context so the extractor
@@ -358,6 +471,19 @@ class Coordinator:
         """
         if graph is None or len(graph.vertices) == 0:
             return False
+        section_orders = []
+        from hydra.pg.model import PropertyKey
+        for vertex in graph.vertices.values():
+            if vertex.label.value != "SessionSection":
+                continue
+            order = vertex.properties.get(PropertyKey("order"))
+            if order is not None:
+                raw = getattr(order, "value", order)
+                raw = getattr(raw, "value", raw)
+                if isinstance(raw, int):
+                    section_orders.append(raw)
+        if section_orders:
+            self._rolling.active_section_order = max(section_orders)
 
         headaches = [
             v for v in graph.vertices.values() if v.label.value == "Headache"
@@ -757,7 +883,8 @@ async def _ensure_person(
             return
 
     if domain.session_infrastructure:
-        from datetime import date
+        from datetime import UTC, datetime
+        from uuid import uuid4
 
         existing_vertices = (
             list(graph.vertices.values()) if graph is not None else []
@@ -780,12 +907,14 @@ async def _ensure_person(
             ),
             None,
         )
-        today = date.today().isoformat()
+        now = datetime.now(UTC)
+        today = now.date().isoformat()
+        session_stamp = now.strftime("%Y%m%dt%H%M%S%f")[:-3] + "z"
         person_id = person.id.value if person else domain.person_id
         session_id = (
             session.id.value
             if session
-            else f"session:{domain.name}:{today}"
+            else f"session:{domain.name}:{session_stamp}:{uuid4().hex[:8]}"
         )
         section_id = (
             section.id.value
@@ -875,7 +1004,7 @@ async def _ensure_person(
             vertices=FrozenDict(vertices),
             edges=FrozenDict(edges),
         )
-        graph_writer.submit(delta)
+        await graph_writer.write(delta)
         coord._rolling.person_id = person_id  # noqa: SLF001
         coord._rolling.register_vertices([person, session, section])  # noqa: SLF001
         log.info(
@@ -900,7 +1029,7 @@ async def _ensure_person(
         vertices=FrozenDict({person_lit: person}),
         edges=FrozenDict({}),
     )
-    graph_writer.submit(delta)
+    await graph_writer.write(delta)
     coord._rolling.person_id = person_id  # noqa: SLF001
     # The new Person root is now in the live graph; register it so the
     # first turn's `reports` edge resolves its out-vertex.
@@ -1013,6 +1142,13 @@ async def run() -> int:
                 AudioInput() as audio_in, \
                 AudioOutput() as audio_out, \
                 GremlinWriter() as graph_writer:
+            if domain.session_infrastructure and not graph_writer.connected:
+                print(
+                    "chatgraph: expert domains require a reachable, "
+                    "transaction-capable Gremlin backend",
+                    file=sys.stderr,
+                )
+                return 1
             coord = Coordinator(
                 agent, tts, transcript, audio_out,
                 extractor=extractor,

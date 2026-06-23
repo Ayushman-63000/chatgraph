@@ -5,12 +5,15 @@
 
   "session": {
     "domain": "hypertension",
-    "schema_file": "schema.json",
-    "section_map_file": "section_map.json",
-    "provenance_spec_file": "provenance_spec.json",
-    "validation_rules_file": "validation_rules.json",
-    "session_id_convention": "session:hypertension:{YYYY-MM-DD}",
-    "session_id_example": "session:hypertension:2026-06-18",
+    "schema_file": "hypertension/hypertension schema.json",
+    "section_map_file": "hypertension/section map.json",
+    "provenance_spec_file": "hypertension/provenance spec.json",
+    "validation_rules_file": "hypertension/validation rules.json",
+    "reference_prompt_txt": "hypertension/Prompt Hypetension.txt",
+    "reference_prompt_docx": "hypertension/Prompt Hypetension.docx",
+    "prompt_governance": "Runtime prompts live in src/main/python/chatgraph/domains/hypertension and lib/prompts.ts. TXT is the canonical human-readable reference; DOCX is an export-only rendering and is never loaded at runtime.",
+    "session_id_convention": "session:hypertension:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}",
+    "session_id_example": "session:hypertension:20260618t015000000z:a1b2c3d4",
     "log_level": "info"
   },
 
@@ -21,7 +24,7 @@
     "temperature": 0.7,
     "max_tokens": 1024,
     "schema_aware_prompting": true,
-    "schema_awareness_description": "At the start of each section, the agent is given the primary_vertex_labels and capture_goals from section_map.json to bias its questions toward uncovered areas.",
+    "schema_awareness_description": "At the start of each section, the agent is given primary_vertex_labels and capture_goals from hypertension/section map.json to bias questions toward uncovered areas.",
     "opening_line": "Hi Doctor, I will conduct your knowledge session today on hypertension. The purpose of today's session is to extract explicit knowledge, tacit expertise, workflows, heuristics, rules, case reasoning, and system-level insights to build a comprehensive hypertension knowledge base.",
     "deep_dive_rule": "At the end of each section, ask: 'Before we move on, would you like to go deeper into anything from this section?' If yes, explore deeply. Ask 'Is it okay to move to the next question?' before proceeding.",
     "closing_line": "Thank you, Doctor. I will now summarize what we covered. Is there anything you would like to add, correct, or expand before we conclude?"
@@ -37,11 +40,11 @@
     "tool_name": "emit_graph_delta",
     "tool_description": "Emit a Hydra graph delta containing new vertices and edges extracted from the current conversational turn.",
     "schema_injection": "full",
-    "schema_injection_description": "The full schema.json is injected into the extractor system prompt at session start. The extractor is schema-constrained — it may only emit vertex and edge labels declared in schema.json.",
+    "schema_injection_description": "The full hypertension/hypertension schema.json is injected into the extractor system prompt at session start. The extractor is schema-constrained to declared labels.",
     "section_map_injection": "current_section_only",
-    "section_map_injection_description": "Only the current section's entry from section_map.json is injected per turn, including primary_vertex_labels, edge_patterns, id_seeds, and extractor_instruction.",
+    "section_map_injection_description": "Only the current section entry from hypertension/section map.json is injected per turn.",
     "provenance_injection": true,
-    "provenance_injection_description": "provenance_spec.json attachment rules and id_convention are injected so the extractor always emits provenance with every knowledge vertex.",
+    "provenance_injection_description": "hypertension/provenance spec.json attachment rules and id convention are injected so the extractor emits provenance with every knowledge vertex.",
     "vertex_id_cache_injection": true,
     "vertex_id_cache_description": "The known vertex ID cache (label → list of IDs) is injected per turn so the extractor can reuse existing vertex IDs instead of creating duplicates.",
     "max_retries": 3,
@@ -84,8 +87,8 @@
   "validation": {
     "description": "Validation is run on every delta before it is written to the graph. Failed deltas are returned to the extractor for correction.",
     "validator": "hydra_graph_schema",
-    "schema_file": "schema.json",
-    "validation_rules_file": "validation_rules.json",
+    "schema_file": "hypertension/hypertension schema.json",
+    "validation_rules_file": "hypertension/validation rules.json",
     "validate_before_write": true,
     "incremental_validation": true,
     "incremental_validation_description": "Validation is aware of previously written vertices. The vertex ID cache is used to check that edge endpoints exist across prior deltas, not just within the current delta.",
@@ -93,7 +96,7 @@
     "unknown_label_policy": "reject_and_retry",
     "missing_required_property_policy": "reject_and_retry",
     "wrong_type_policy": "reject_and_retry",
-    "missing_provenance_policy": "warn_and_continue"
+    "missing_provenance_policy": "reject_and_retry"
   },
 
   "vertex_id_cache": {
@@ -107,7 +110,7 @@
   "id_conventions": {
     "description": "Slug-based string ID patterns for all vertex types. All slugs are lowercase, hyphen-separated, no spaces, no special characters.",
     "conventions": {
-      "KnowledgeSession":          "session:hypertension:{YYYY-MM-DD}",
+      "KnowledgeSession":          "session:hypertension:{UTC_COMPACT_TIMESTAMP}:{RANDOM8}",
       "SessionSection":            "section:{session_id}:{section_order}",
       "TranscriptEpisode":         "ep:{session_id}:{sequence}",
       "Person":                    "person:{name_slug}",
@@ -142,8 +145,8 @@
 
   "session_lifecycle": {
     "on_start": [
-      "Load schema.json and validate it parses correctly",
-      "Load section_map.json, provenance_spec.json, validation_rules.json",
+      "Load hypertension/hypertension schema.json and validate it parses correctly",
+      "Load hypertension/section map.json, hypertension/provenance spec.json, and hypertension/validation rules.json",
       "Connect to Gremlin endpoint and verify connectivity",
       "Check if session ID already exists in graph — if yes, resume mode",
       "If new session: emit KnowledgeSession vertex and Person vertex, write to graph",

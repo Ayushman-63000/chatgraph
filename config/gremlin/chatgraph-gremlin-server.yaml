@@ -1,6 +1,6 @@
-# Gremlin Server config for chatgraph.
+# Gremlin Server config for chatgraph's transactional TinkerGraph.
 #
-# Starts an empty TinkerGraph with string-typed vertex / edge / property ids
+# Starts an empty TinkerTransactionGraph with string-typed ids
 # (vertexIdManager=ANY). Listens on ws://localhost:8182/gremlin with GraphSON 3
 # and GraphBinary serializers (compatible with gremlinpython >= 3.6 and
 # with gdotv).

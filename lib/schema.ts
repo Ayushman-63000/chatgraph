@@ -1,4 +1,9 @@
 import { getDomain } from "./domains";
+import {
+  DEEP_DIVE_QUESTION,
+  MOVE_NEXT_QUESTION,
+  nextSectionOrder
+} from "./section-state";
 import type {
   ChatMessage,
   DomainId,
@@ -70,7 +75,7 @@ export function emptyGraph(domainId: DomainId): GraphState {
   if (!domain.root.sessionInfrastructure) {
     return { vertices: { [person.id]: person }, edges: {} };
   }
-  const sessionId = `session:${domainId}:${date}`;
+  const sessionId = newSessionId(domainId);
   const sectionId = `section:${sessionId}:1`;
   return {
     vertices: {
@@ -111,6 +116,16 @@ export function emptyGraph(domainId: DomainId): GraphState {
       }
     }
   };
+}
+
+function newSessionId(domainId: DomainId): string {
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:.]/g, "")
+    .replace("Z", "z")
+    .toLowerCase();
+  const suffix = globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  return `session:${domainId}:${timestamp}:${suffix}`;
 }
 
 export function schemaReference(domainId: DomainId): string {
@@ -194,42 +209,66 @@ export function activeSectionOrder(
       .filter((vertex) => vertex.label === "SessionSection")
       .map((vertex) => Number(vertex.properties.order ?? 1))
   );
-  if (messages.filter((message) => message.role === "user").length <= 1) {
-    return current;
-  }
-  let latestUser = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === "user") {
-      latestUser = index;
-      break;
-    }
-  }
-  let interviewer = "";
-  for (let index = latestUser - 1; index >= 0; index -= 1) {
-    if (messages[index].role === "assistant") {
-      interviewer = messages[index].content;
-      break;
-    }
-  }
-  if (!interviewer) return current;
+  if (messages.filter((message) => message.role === "user").length <= 1) return current;
+  return nextSectionOrder(current, sections.length, messages);
+}
 
-  const questionWords = meaningfulWords(interviewer);
-  let bestOrder = current;
-  let bestScore = 0;
-  for (const section of sections) {
-    const reference = [
-      section.title,
-      section.purpose,
-      ...(section.capture_goals ?? [])
-    ].filter(Boolean).join(" ");
-    const score = meaningfulWords(reference).filter((word) => questionWords.includes(word)).length;
-    if (score > bestScore) {
-      bestScore = score;
-      bestOrder = section.order;
-    }
-  }
-  if (bestScore < 2) return current;
-  return Math.max(current, Math.min(current + 1, bestOrder));
+export function sectionInfrastructureDelta(
+  domainId: DomainId,
+  graph: GraphState,
+  sectionOrder: number
+): GraphDelta {
+  const domain = getDomain(domainId);
+  if (!domain.root.sessionInfrastructure) return { vertices: [], edges: [] };
+  const section = domain.sectionMap?.sections?.find(
+    (candidate) => candidate.order === sectionOrder
+  );
+  const session = Object.values(graph.vertices).find(
+    (vertex) => vertex.label === "KnowledgeSession"
+  );
+  if (!section || !session) return { vertices: [], edges: [] };
+  const sectionId = `section:${session.id}:${sectionOrder}`;
+  if (graph.vertices[sectionId]) return { vertices: [], edges: [] };
+  return {
+    vertices: [
+      {
+        id: sectionId,
+        label: "SessionSection",
+        properties: {
+          sectionType: section.section_type ?? `section_${sectionOrder}`,
+          order: sectionOrder,
+          title: section.title ?? `Section ${sectionOrder}`,
+          purpose: section.purpose ?? ""
+        }
+      }
+    ],
+    edges: [
+      {
+        id: `${session.id}-hasSection->${sectionId}`,
+        label: "hasSection",
+        out: session.id,
+        in: sectionId,
+        properties: {}
+      }
+    ]
+  };
+}
+
+export function activeSectionInstruction(
+  domainId: DomainId,
+  sectionOrder: number
+): string {
+  const section = getDomain(domainId).sectionMap?.sections?.find(
+    (candidate) => candidate.order === sectionOrder
+  );
+  if (!section) return "";
+  return [
+    `[ACTIVE SECTION ${sectionOrder}] ${section.title ?? section.section_type ?? ""}`,
+    section.purpose ?? "",
+    `Stay within this section. Ask one focused question at a time.`,
+    `When this section is sufficiently covered, ask exactly: "${DEEP_DIVE_QUESTION}"`,
+    `Do not enter the next section until the expert declines deeper exploration or explicitly confirms "${MOVE_NEXT_QUESTION}"`
+  ].filter(Boolean).join("\n");
 }
 
 export function sanitizeDelta(
@@ -253,6 +292,7 @@ export function sanitizeDelta(
   const rawEdges = Array.isArray(raw.edges) ? raw.edges : [];
   const vertices: GraphVertex[] = [];
   const ignoredIds = new Set<string>();
+  const idAliases = new Map<string, string>();
   const section = domain.sectionMap?.sections?.find((item) => item.order === activeSection);
   const sectionLabels = section?.primary_vertex_labels
     ? new Set([...section.primary_vertex_labels, "SessionSection"])
@@ -260,6 +300,9 @@ export function sanitizeDelta(
   const sectionEdges = section?.edge_patterns
     ? new Set([
         ...section.edge_patterns.map((pattern) => pattern.edge),
+        ...[...edgeSpecs.values()]
+          .filter((spec) => spec.in === "ProvenanceEvidence")
+          .map((spec) => spec.label),
         "hasSection",
         "hasEpisode"
       ])
@@ -273,7 +316,8 @@ export function sanitizeDelta(
       warnings.push("Dropped vertex: not an object.");
       continue;
     }
-    const id = stringValue(item.id);
+    let id = stringValue(item.id);
+    const originalId = id;
     const label = stringValue(item.label);
     if (!id || !label) {
       warnings.push(`Dropped vertex: missing id or label (id=${JSON.stringify(item.id)}, label=${JSON.stringify(item.label)}).`);
@@ -329,6 +373,18 @@ export function sanitizeDelta(
       warnings.push(`Dropped vertex ${id}: ${typeError}.`);
       continue;
     }
+    if (domain.validationProfile === "expert") {
+      const existingCanonical = findCanonicalVertex(
+        label,
+        properties,
+        graph,
+        vertices
+      );
+      if (existingCanonical && existingCanonical.id !== id) {
+        idAliases.set(id, existingCanonical.id);
+        id = existingCanonical.id;
+      }
+    }
     const validId =
       domain.validationProfile === "headache"
         ? /^[A-Za-z0-9][A-Za-z0-9_:-]*$/.test(id)
@@ -376,42 +432,11 @@ export function sanitizeDelta(
       const policyKind = label === "CheckInPolicy" ? "checkin" : "checkout";
       const expectedId = `policy:${policyKind}:${session?.id ?? `session:${domainId}:unknown`}`;
       const existing = Object.values(graph.vertices).find((vertex) => vertex.label === label);
-      if (existing && existing.id !== id) {
-        warnings.push(`Dropped vertex ${id}: reuse singleton ${label} id ${existing.id}.`);
-        continue;
+      const canonicalPolicyId = existing?.id ?? expectedId;
+      if (id !== canonicalPolicyId) {
+        idAliases.set(id, canonicalPolicyId);
+        id = canonicalPolicyId;
       }
-      if (id !== expectedId) {
-        warnings.push(`Dropped vertex ${id}: ${label} id must be ${expectedId}.`);
-        continue;
-      }
-    }
-    if (
-      domainId === "hospitality" &&
-      label === "GuestPersona" &&
-      Object.values(graph.vertices).some(
-        (vertex) =>
-          vertex.label === label &&
-          vertex.id !== id &&
-          String(vertex.properties.name ?? "").toLowerCase() ===
-            String(properties.name ?? "").toLowerCase()
-      )
-    ) {
-      warnings.push(`Dropped vertex ${id}: reuse existing GuestPersona with the same name.`);
-      continue;
-    }
-    if (
-      domainId === "hospitality" &&
-      label === "GuestSignal" &&
-      Object.values(graph.vertices).some(
-        (vertex) =>
-          vertex.label === label &&
-          vertex.id !== id &&
-          String(vertex.properties.name ?? "").toLowerCase() ===
-            String(properties.name ?? "").toLowerCase()
-      )
-    ) {
-      warnings.push(`Dropped vertex ${id}: reuse existing GuestSignal with the same name.`);
-      continue;
     }
     if (domain.validationProfile === "expert" && label === "ProvenanceEvidence") {
       const trace = String(properties.traceText ?? "").trim().toLowerCase();
@@ -449,8 +474,20 @@ export function sanitizeDelta(
         warnings.push(`Review: Provenance ${id} is inferred but cites fewer than 2 episode ids.`);
       }
     }
-    vertices.push({ id, label, properties });
+    const existingIndex = vertices.findIndex((vertex) => vertex.id === id);
+    if (existingIndex >= 0) {
+      vertices[existingIndex] = {
+        ...vertices[existingIndex],
+        properties: {
+          ...vertices[existingIndex].properties,
+          ...properties
+        }
+      };
+    } else {
+      vertices.push({ id, label, properties });
+    }
     labelsById.set(id, label);
+    if (originalId !== id) labelsById.set(originalId, label);
   }
 
   const edges: GraphEdge[] = [];
@@ -460,8 +497,10 @@ export function sanitizeDelta(
       continue;
     }
     const label = stringValue(item.label);
-    const out = stringValue(item.out);
-    const incoming = stringValue(item.in);
+    const rawOut = stringValue(item.out);
+    const rawIncoming = stringValue(item.in);
+    const out = idAliases.get(rawOut) ?? rawOut;
+    const incoming = idAliases.get(rawIncoming) ?? rawIncoming;
     if (!label || !out || !incoming) {
       warnings.push(`Dropped edge: missing label, out, or in (label=${JSON.stringify(item.label)}, out=${JSON.stringify(item.out)}, in=${JSON.stringify(item.in)}).`);
       continue;
@@ -511,7 +550,7 @@ export function sanitizeDelta(
       .map((spec) => spec.label)
   );
   const provenanceTargets = new Set(
-    [...Object.values(graph.edges), ...edges]
+    edges
       .filter((edge) => provenanceEdgeLabels.has(edge.label))
       .map((edge) => edge.out)
   );
@@ -526,6 +565,16 @@ export function sanitizeDelta(
   );
   const expectedProvenanceEdges =
     domain.provenanceSpec?.attachment_rules?.edge_label_by_vertex ?? {};
+  const currentEvidenceIds = new Set(
+    vertices
+      .filter((vertex) => vertex.label === "ProvenanceEvidence")
+      .map((vertex) => vertex.id)
+  );
+  const currentEpisodeIds = new Set(
+    vertices
+      .filter((vertex) => vertex.label === "TranscriptEpisode")
+      .map((vertex) => vertex.id)
+  );
   const seenProvenance = new Set<string>();
   for (const vertex of vertices) {
     if (
@@ -533,7 +582,7 @@ export function sanitizeDelta(
       !provenanceTargets.has(vertex.id)
     ) {
       warnings.push(
-        `Review: ${vertex.label} ${vertex.id} has no schema-valid provenance edge.`
+        `${vertex.label} ${vertex.id} has no schema-valid provenance edge in this delta.`
       );
     }
     const attached = edges.filter(
@@ -546,7 +595,15 @@ export function sanitizeDelta(
       attached.some((edge) => edge.label !== expected)
     ) {
       warnings.push(
-        `Review: ${vertex.label} ${vertex.id} should use provenance edge ${expected}.`
+        `${vertex.label} ${vertex.id} must use provenance edge ${expected}.`
+      );
+    }
+    if (
+      expected &&
+      attached.some((edge) => !currentEvidenceIds.has(edge.in))
+    ) {
+      warnings.push(
+        `${vertex.label} ${vertex.id} must target ProvenanceEvidence emitted in this delta.`
       );
     }
     if (vertex.label === "ProvenanceEvidence") {
@@ -558,9 +615,7 @@ export function sanitizeDelta(
         );
       }
       seenProvenance.add(provenanceKey);
-      const sourceExists =
-        labelsById.get(sourceEpisode) === "TranscriptEpisode" ||
-        graph.vertices[sourceEpisode]?.label === "TranscriptEpisode";
+      const sourceExists = currentEpisodeIds.has(sourceEpisode);
       if (!sourceExists) {
         warnings.push(
           `Review: Provenance ${vertex.id} references missing source episode ${sourceEpisode}.`
@@ -655,19 +710,52 @@ function firstTypeError(
   return null;
 }
 
-const STOP_WORDS = new Set([
-  "about", "after", "again", "also", "and", "are", "before", "being", "business",
-  "could", "does", "from", "have", "hospitality", "into", "most", "other", "should",
-  "that", "their", "them", "then", "there", "these", "they", "this", "through",
-  "what", "when", "where", "which", "with", "would", "your"
-]);
+const IDENTITY_PROPERTY_BY_LABEL: Record<string, string> = {
+  GuestExperiencePrinciple: "name",
+  ServiceStandard: "name",
+  GuestSignal: "name",
+  GuestPersona: "name",
+  TimingRule: "ruleText",
+  ServiceFailure: "name",
+  RecoveryAction: "name",
+  ExceptionRule: "ruleText",
+  DecisionRule: "ruleText",
+  OperatingHeuristic: "name",
+  LoyaltyDriver: "name",
+  EmotionalMoment: "name",
+  HypertensionConcept: "name",
+  DiagnosticCriterion: "criterionName",
+  ClinicalFinding: "name",
+  Symptom: "name",
+  Comorbidity: "name",
+  RiskFactor: "name",
+  SecondaryCause: "name",
+  DiagnosticTest: "testName",
+  Medication: "name",
+  LifestyleIntervention: "name",
+  ClinicalReasoningPattern: "patternName",
+  Pitfall: "description"
+};
 
-function meaningfulWords(text: string): string[] {
-  return [...new Set(
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .split(/\s+/)
-      .filter((word) => word.length > 3 && !STOP_WORDS.has(word))
-  )];
+function findCanonicalVertex(
+  label: string,
+  properties: Record<string, JsonValue>,
+  graph: GraphState,
+  pending: GraphVertex[]
+): GraphVertex | undefined {
+  const property = IDENTITY_PROPERTY_BY_LABEL[label];
+  if (!property) return undefined;
+  const identity = normalizedIdentity(properties[property]);
+  if (!identity) return undefined;
+  return [...Object.values(graph.vertices), ...pending].find(
+    (vertex) =>
+      vertex.label === label &&
+      normalizedIdentity(vertex.properties[property]) === identity
+  );
+}
+
+function normalizedIdentity(value: JsonValue | undefined): string {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/\s+/g, " ")
+    : "";
 }

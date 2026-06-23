@@ -6,7 +6,7 @@
   "provenance_vertex": {
     "label": "ProvenanceEvidence",
     "id_convention": "prov:{episode_id}:{sequence}",
-    "id_example": "prov:ep:session:hypertension:2026-06-18:7:1",
+    "id_example": "prov:ep:session:hypertension:20260618t015000000z:a1b2c3d4:7:01",
     "fields": [
       {
         "field": "traceText",
@@ -84,25 +84,25 @@
     "edge_label_by_vertex": {
       "HypertensionConcept":      "conceptSupportedBy",
       "DecisionRule":              "supportedBy",
-      "ClinicalReasoningPattern":  "supportedBy",
-      "Pitfall":                   "supportedBy",
-      "CaseScenario":              "supportedBy",
-      "Medication":                "supportedBy",
-      "DiagnosticTest":            "supportedBy",
-      "LifestyleIntervention":     "supportedBy",
-      "FollowUpPlan":              "supportedBy",
-      "Outcome":                   "supportedBy",
-      "BloodPressureMeasurement":  "supportedBy",
-      "DiagnosticCriterion":       "supportedBy",
-      "ClinicalFinding":           "supportedBy",
-      "Symptom":                   "supportedBy",
-      "Comorbidity":               "supportedBy",
-      "RiskFactor":                "supportedBy",
-      "SecondaryCause":            "supportedBy",
-      "ContextualConstraint":      "supportedBy"
+      "ClinicalReasoningPattern":  "reasoningPatternSupportedBy",
+      "Pitfall":                   "pitfallSupportedBy",
+      "CaseScenario":              "caseSupportedBy",
+      "Medication":                "medicationSupportedBy",
+      "DiagnosticTest":            "testSupportedBy",
+      "LifestyleIntervention":     "lifestyleSupportedBy",
+      "FollowUpPlan":              "followUpSupportedBy",
+      "Outcome":                   "outcomeSupportedBy",
+      "BloodPressureMeasurement":  "measurementSupportedBy",
+      "DiagnosticCriterion":       "criterionSupportedBy",
+      "ClinicalFinding":           "findingSupportedBy",
+      "Symptom":                   "symptomSupportedBy",
+      "Comorbidity":               "comorbiditySupportedBy",
+      "RiskFactor":                "riskFactorSupportedBy",
+      "SecondaryCause":            "secondaryCauseSupportedBy",
+      "ContextualConstraint":      "constraintSupportedBy"
     },
-    "failure_action": "warn_and_continue",
-    "failure_description": "If the LLM extractor emits a knowledge vertex without a provenance edge, the validator emits a WARNING and writes the vertex anyway. The session will be flagged for post-hoc provenance repair. The delta is NOT rejected — provenance is strongly recommended but not write-blocking."
+    "failure_action": "reject_delta_and_retry",
+    "failure_description": "A knowledge vertex without its label-specific provenance edge is rejected and returned to the extractor for correction."
   },
 
   "reuse_rules": {
@@ -118,7 +118,7 @@
 
   "inferred_provenance": {
     "description": "Some knowledge nodes are synthesized across multiple utterances (e.g. a DecisionRule assembled from three separate statements). These require a special inferred provenance record.",
-    "rule": "Set confidence='inferred'. In traceText, write a brief synthesis statement that names the episode IDs it draws from, e.g. 'Synthesized from ep:session:hypertension:2026-06-18:3, ep:...5, ep:...9 — expert consistently described adding a third drug after two-drug failure at 140/90.'",
+    "rule": "Set confidence='inferred'. In traceText, name at least two contributing episode IDs and summarize the synthesis.",
     "sourceEpisode": "Set to the episode ID of the most recent contributing utterance."
   },
 
@@ -126,9 +126,9 @@
     "pattern": "prov:{episode_id}:{sequence}",
     "sequence": "Zero-padded 2-digit integer starting at 01, incrementing per ProvenanceEvidence node emitted within the same episode.",
     "examples": [
-      "prov:ep:session:hypertension:2026-06-18:3:01",
-      "prov:ep:session:hypertension:2026-06-18:3:02",
-      "prov:ep:session:hypertension:2026-06-18:12:01"
+      "prov:ep:session:hypertension:20260618t015000000z:a1b2c3d4:3:01",
+      "prov:ep:session:hypertension:20260618t015000000z:a1b2c3d4:3:02",
+      "prov:ep:session:hypertension:20260618t015000000z:a1b2c3d4:12:01"
     ]
   },
 

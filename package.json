@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit --incremental false"
+    "typecheck": "tsc --noEmit --incremental false",
+    "test:realtime": "node --experimental-strip-types --test tests/realtime-events.test.mjs",
+    "test:sections": "node --experimental-strip-types --test tests/section-state.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

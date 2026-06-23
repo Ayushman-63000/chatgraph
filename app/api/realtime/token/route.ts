@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDomain, isDomainId } from "@/lib/domains";
+import { activeSectionInstruction } from "@/lib/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid domain." }, { status: 400 });
   }
   const domain = getDomain(domainId);
+  const sectionInstruction = activeSectionInstruction(domainId, 1);
 
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
@@ -31,7 +33,9 @@ export async function GET(request: Request) {
       session: {
         type: "realtime",
         model: process.env.CHATGRAPH_REALTIME_MODEL || DEFAULT_REALTIME_MODEL,
-        instructions: domain.conversationPrompt,
+        instructions: sectionInstruction
+          ? `${domain.conversationPrompt}\n\n${sectionInstruction}`
+          : domain.conversationPrompt,
         output_modalities: ["audio"],
         audio: {
           input: {

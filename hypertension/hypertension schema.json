@@ -58,8 +58,8 @@
         "label": "ProvenanceEvidence",
         "id": { "string": {} },
         "properties": [
-          { "key": "sourceEpisode", "value": { "string": {} }, "required": false },
-          { "key": "speaker",       "value": { "string": {} }, "required": false },
+          { "key": "sourceEpisode", "value": { "string": {} }, "required": true  },
+          { "key": "speaker",       "value": { "string": {} }, "required": true  },
           { "key": "timestamp",     "value": { "string": {} }, "required": false },
           { "key": "traceText",     "value": { "string": {} }, "required": true  },
           { "key": "confidence",    "value": { "string": {} }, "required": false }
@@ -420,6 +420,70 @@
     {
       "@key": "conceptSupportedBy",
       "@value": { "label": "conceptSupportedBy", "id": { "string": {} }, "out": "HypertensionConcept", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "measurementSupportedBy",
+      "@value": { "label": "measurementSupportedBy", "id": { "string": {} }, "out": "BloodPressureMeasurement", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "criterionSupportedBy",
+      "@value": { "label": "criterionSupportedBy", "id": { "string": {} }, "out": "DiagnosticCriterion", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "findingSupportedBy",
+      "@value": { "label": "findingSupportedBy", "id": { "string": {} }, "out": "ClinicalFinding", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "symptomSupportedBy",
+      "@value": { "label": "symptomSupportedBy", "id": { "string": {} }, "out": "Symptom", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "comorbiditySupportedBy",
+      "@value": { "label": "comorbiditySupportedBy", "id": { "string": {} }, "out": "Comorbidity", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "riskFactorSupportedBy",
+      "@value": { "label": "riskFactorSupportedBy", "id": { "string": {} }, "out": "RiskFactor", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "secondaryCauseSupportedBy",
+      "@value": { "label": "secondaryCauseSupportedBy", "id": { "string": {} }, "out": "SecondaryCause", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "testSupportedBy",
+      "@value": { "label": "testSupportedBy", "id": { "string": {} }, "out": "DiagnosticTest", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "medicationSupportedBy",
+      "@value": { "label": "medicationSupportedBy", "id": { "string": {} }, "out": "Medication", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "lifestyleSupportedBy",
+      "@value": { "label": "lifestyleSupportedBy", "id": { "string": {} }, "out": "LifestyleIntervention", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "followUpSupportedBy",
+      "@value": { "label": "followUpSupportedBy", "id": { "string": {} }, "out": "FollowUpPlan", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "reasoningPatternSupportedBy",
+      "@value": { "label": "reasoningPatternSupportedBy", "id": { "string": {} }, "out": "ClinicalReasoningPattern", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "pitfallSupportedBy",
+      "@value": { "label": "pitfallSupportedBy", "id": { "string": {} }, "out": "Pitfall", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "caseSupportedBy",
+      "@value": { "label": "caseSupportedBy", "id": { "string": {} }, "out": "CaseScenario", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "constraintSupportedBy",
+      "@value": { "label": "constraintSupportedBy", "id": { "string": {} }, "out": "ContextualConstraint", "in": "ProvenanceEvidence", "properties": [] }
+    },
+    {
+      "@key": "outcomeSupportedBy",
+      "@value": { "label": "outcomeSupportedBy", "id": { "string": {} }, "out": "Outcome", "in": "ProvenanceEvidence", "properties": [] }
     }
   ]
 }

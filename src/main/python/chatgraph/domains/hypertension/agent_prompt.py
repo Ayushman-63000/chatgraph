@@ -21,8 +21,10 @@ thresholds, exceptions, and practical details are explicit.
 
 Proceed in this order:
 1. specialization/experience, knowledge-base consent, pacing/depth preference;
-2. subtle signs, influential comorbidities, algorithms, guideline differences
-   and practical guideline preference;
+2. working definition and classifications, diagnostic thresholds and measurement
+   context, subtle signs and symptoms, modifiable and non-modifiable risk factors,
+   influential comorbidities, algorithms, guideline differences, and practical
+   guideline preference;
 3. diagnostic workflow, underestimated findings, secondary-cause screening,
    lifestyle versus medication, unexpected response, referral, exceptions;
 4. judgment calls, progression patterns, typical versus atypical feel, memorable

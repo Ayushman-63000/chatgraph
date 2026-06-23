@@ -4,6 +4,7 @@ import hypertensionSchemaRaw from "../hypertension/hypertension schema.json";
 import hospitalityProvenanceSpecRaw from "../hospitality/provenance spec.json";
 import hospitalitySectionMapRaw from "../hospitality/section map.json";
 import hospitalityValidationRulesRaw from "../hospitality/validation rules.json";
+import hypertensionProvenanceSpecRaw from "../hypertension/provenance spec.json";
 import hypertensionSectionMapRaw from "../hypertension/section map.json";
 import {
   HEADACHE_AGENT_PROMPT,
@@ -148,9 +149,11 @@ export const DOMAIN_REGISTRY: Record<DomainId, DomainDescriptor> = {
     schemaPath: "hypertension/hypertension schema.json",
     sectionMapPath: "hypertension/section map.json",
     validationRulesPath: "hypertension/validation rules.json",
+    provenanceSpecPath: "hypertension/provenance spec.json",
     idConvention: "lowercase colon-namespaced slugs",
     schema: hypertensionSchemaRaw as PropertyGraphSchema,
     sectionMap: hypertensionSectionMapRaw as SectionMap,
+    provenanceSpec: hypertensionProvenanceSpecRaw as ProvenanceSpec,
     root: {
       personId: "person:expert",
       personName: "Hypertension expert",

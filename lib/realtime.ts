@@ -1,25 +1,15 @@
+import {
+  RealtimeTranscriptCollector,
+  type RealtimeServerEvent
+} from "./realtime-events";
+
 export type RealtimeStatus = "idle" | "connecting" | "connected";
 
 type RealtimeCallbacks = {
   onStatus: (status: RealtimeStatus) => void;
-  onUserTranscript: (text: string) => void;
-  onAssistantTranscript: (text: string) => void;
+  onUserTranscript: (text: string, sourceId: string) => void;
+  onAssistantTranscript: (text: string, sourceId: string) => void;
   onError: (message: string) => void;
-};
-
-type RealtimeServerEvent = {
-  type?: string;
-  delta?: string;
-  transcript?: string;
-  error?: { message?: string };
-  response?: {
-    output?: Array<{
-      content?: Array<{
-        transcript?: string;
-        text?: string;
-      }>;
-    }>;
-  };
 };
 
 export class OpenAIRealtimeSession {
@@ -27,7 +17,8 @@ export class OpenAIRealtimeSession {
   private channel: RTCDataChannel | null = null;
   private stream: MediaStream | null = null;
   private audio: HTMLAudioElement | null = null;
-  private assistantTranscript = "";
+  private transcriptCollector = new RealtimeTranscriptCollector();
+  private stopped = true;
 
   constructor(
     private callbacks: RealtimeCallbacks,
@@ -35,6 +26,7 @@ export class OpenAIRealtimeSession {
   ) {}
 
   async start(): Promise<void> {
+    this.stopped = false;
     this.callbacks.onStatus("connecting");
     try {
       const tokenResponse = await fetch(
@@ -45,6 +37,7 @@ export class OpenAIRealtimeSession {
       const tokenPayload = await tokenResponse.json();
       const token = extractRealtimeToken(tokenPayload);
       if (!token) throw new Error("Realtime token response did not include a client secret.");
+      if (this.stopped) return;
 
       const peer = new RTCPeerConnection();
       this.peer = peer;
@@ -55,8 +48,20 @@ export class OpenAIRealtimeSession {
         if (this.audio) this.audio.srcObject = event.streams[0];
       };
 
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of this.stream.getTracks()) peer.addTrack(track, this.stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      if (this.stopped) {
+        stream.getTracks().forEach((track) => track.stop());
+        peer.close();
+        return;
+      }
+      this.stream = stream;
+      for (const track of stream.getTracks()) peer.addTrack(track, stream);
 
       this.channel = peer.createDataChannel("oai-events");
       this.channel.addEventListener("open", () => this.callbacks.onStatus("connected"));
@@ -75,18 +80,20 @@ export class OpenAIRealtimeSession {
         }
       });
       if (!sdpResponse.ok) throw new Error(await sdpResponse.text());
+      if (this.stopped) return;
       await peer.setRemoteDescription({
         type: "answer",
         sdp: await sdpResponse.text()
       });
     } catch (error) {
+      if (this.stopped) return;
       this.stop();
       this.callbacks.onError(error instanceof Error ? error.message : "Realtime voice failed.");
-      this.callbacks.onStatus("idle");
     }
   }
 
   stop(): void {
+    this.stopped = true;
     this.channel?.close();
     this.peer?.close();
     this.stream?.getTracks().forEach((track) => track.stop());
@@ -95,8 +102,18 @@ export class OpenAIRealtimeSession {
     this.peer = null;
     this.stream = null;
     this.audio = null;
-    this.assistantTranscript = "";
+    this.transcriptCollector.reset();
     this.callbacks.onStatus("idle");
+  }
+
+  updateInstructions(instructions: string): void {
+    if (!instructions || this.channel?.readyState !== "open") return;
+    this.channel.send(
+      JSON.stringify({
+        type: "session.update",
+        session: { instructions }
+      })
+    );
   }
 
   private handleEvent(raw: string): void {
@@ -112,33 +129,12 @@ export class OpenAIRealtimeSession {
       return;
     }
 
-    if (event.type === "conversation.item.input_audio_transcription.completed") {
-      const text = event.transcript?.trim();
-      if (text) this.callbacks.onUserTranscript(text);
-      return;
-    }
-
-    if (
-      event.type === "response.output_audio_transcript.delta" ||
-      event.type === "response.output_text.delta"
-    ) {
-      this.assistantTranscript += event.delta ?? "";
-      return;
-    }
-
-    if (
-      event.type === "response.output_audio_transcript.done" ||
-      event.type === "response.output_text.done"
-    ) {
-      const text = (event.transcript ?? this.assistantTranscript).trim();
-      this.assistantTranscript = "";
-      if (text) this.callbacks.onAssistantTranscript(text);
-      return;
-    }
-
-    if (event.type === "response.done") {
-      const text = extractResponseTranscript(event).trim();
-      if (text) this.callbacks.onAssistantTranscript(text);
+    for (const transcript of this.transcriptCollector.collect(event)) {
+      if (transcript.role === "user") {
+        this.callbacks.onUserTranscript(transcript.text, transcript.sourceId);
+      } else {
+        this.callbacks.onAssistantTranscript(transcript.text, transcript.sourceId);
+      }
     }
   }
 }
@@ -151,17 +147,6 @@ function extractRealtimeToken(payload: unknown): string {
     return clientSecret.value;
   }
   return "";
-}
-
-function extractResponseTranscript(event: RealtimeServerEvent): string {
-  const pieces: string[] = [];
-  for (const output of event.response?.output ?? []) {
-    for (const content of output.content ?? []) {
-      if (content.transcript) pieces.push(content.transcript);
-      else if (content.text) pieces.push(content.text);
-    }
-  }
-  return pieces.join(" ");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

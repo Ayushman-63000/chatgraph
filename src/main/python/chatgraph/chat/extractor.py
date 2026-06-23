@@ -87,6 +87,48 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 # giving up and dropping the utterance's delta.
 MAX_EXTRACTION_ATTEMPTS = 3
 
+_IDENTITY_PROPERTY_BY_LABEL = {
+    "GuestExperiencePrinciple": "name",
+    "ServiceStandard": "name",
+    "GuestSignal": "name",
+    "GuestPersona": "name",
+    "TimingRule": "ruleText",
+    "ServiceFailure": "name",
+    "RecoveryAction": "name",
+    "ExceptionRule": "ruleText",
+    "DecisionRule": "ruleText",
+    "OperatingHeuristic": "name",
+    "LoyaltyDriver": "name",
+    "EmotionalMoment": "name",
+    "HypertensionConcept": "name",
+    "DiagnosticCriterion": "criterionName",
+    "ClinicalFinding": "name",
+    "Symptom": "name",
+    "Comorbidity": "name",
+    "RiskFactor": "name",
+    "SecondaryCause": "name",
+    "DiagnosticTest": "testName",
+    "Medication": "name",
+    "LifestyleIntervention": "name",
+    "ClinicalReasoningPattern": "patternName",
+    "Pitfall": "description",
+}
+
+_SINGLETON_LABELS = {"CheckInPolicy", "CheckOutPolicy"}
+
+
+def _identity_key(label: str, properties: dict) -> tuple[str, str] | None:
+    property_name = _IDENTITY_PROPERTY_BY_LABEL.get(label)
+    if not property_name:
+        return None
+    value = properties.get(property_name)
+    if hasattr(value, "value"):
+        value = value.value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = " ".join(value.lower().split())
+    return label, normalized
+
 def _allowlists_from_schema(schema: dict) -> tuple[
     dict[str, set[str]],
     dict[str, tuple[str, str]],
@@ -209,6 +251,9 @@ class RollingContext:
     # chatgraph.chat.validation for the full rationale.
     vertex_labels: dict = field(default_factory=dict)
     utterance_sequence: int = 0
+    active_section_order: int = 1
+    canonical_ids: dict[tuple[str, str], str] = field(default_factory=dict)
+    singleton_ids: dict[str, str] = field(default_factory=dict)
 
     BUCKET_LABELS = (
         "HeadacheTriggers", "AlleviatingFactors",
@@ -246,6 +291,15 @@ class RollingContext:
         """
         for v in vertices:
             self.vertex_labels[v.id.value] = v.label.value
+            properties = {
+                key.value: getattr(value, "value", value)
+                for key, value in v.properties.items()
+            }
+            identity = _identity_key(v.label.value, properties)
+            if identity is not None:
+                self.canonical_ids.setdefault(identity, v.id.value)
+            if v.label.value in _SINGLETON_LABELS:
+                self.singleton_ids.setdefault(v.label.value, v.id.value)
 
     def register_bucket(
         self, bucket_label: str, bucket_id: str, headache_id: str | None = None
@@ -507,6 +561,13 @@ class Extractor:
         ) = _allowlists_from_schema(schema_json)
         self._prop_types = _prop_types_from_schema(schema_json)
         self._schema = decode_graph_schema(schema_json)
+        self._provenance_edge_by_vertex: dict[str, str] = {}
+        if domain.provenance_spec_path is not None:
+            with domain.provenance_spec_path.open(encoding="utf-8") as handle:
+                provenance_spec = json.load(handle)
+            self._provenance_edge_by_vertex = provenance_spec.get(
+                "attachment_rules", {}
+            ).get("edge_label_by_vertex", {})
 
         # System prompt = domain-supplied intro + schema reference.
         self._system_prompt = domain.extractor_prompt_intro + _format_schema_reference(
@@ -575,6 +636,8 @@ class Extractor:
                     allowed_vertex_props=self._allowed_vertex_props,
                     allowed_edges=self._allowed_edges,
                     allowed_edge_props=self._allowed_edge_props,
+                    canonical_ids=context.canonical_ids,
+                    singleton_ids=context.singleton_ids,
                 )
             except Exception:
                 log.exception("Extractor: failed to materialize delta")
@@ -583,20 +646,23 @@ class Extractor:
             validation = validate_delta(
                 self._schema, result.delta, context.vertex_labels
             )
-            if validation.is_valid:
+            contract_error = (
+                _validate_provenance_contract(
+                    result.delta, self._provenance_edge_by_vertex
+                )
+                if validation.is_valid
+                else None
+            )
+            if validation.is_valid and contract_error is None:
                 if attempt > 1:
                     log.info(
                         "Extractor: delta valid after %d attempt(s)", attempt
                     )
-                # The delta is about to be written, so its vertices join
-                # the live-graph set that future deltas can anchor edges
-                # to (e.g. a later turn's edge into this turn's Headache).
-                context.register_vertices(result.delta.vertices.values())
                 return result
 
             # Result's repr() produces "INVALID - <typed error dump>", which
             # is verbose but identical across Hydra's polyglot bindings.
-            last_error_message = repr(validation)
+            last_error_message = contract_error or repr(validation)
             log.warning(
                 "Extractor: validation failed (attempt %d/%d): %s",
                 attempt, MAX_EXTRACTION_ATTEMPTS, last_error_message,
@@ -646,6 +712,8 @@ class Extractor:
             return (
                 f"session_id: {session_id}\n"
                 f"episode_id: {episode_id}\n"
+                f"active_section_order: {context.active_section_order}\n"
+                f"active_section_id: section:{session_id}:{context.active_section_order}\n"
                 f"known_section_ids: {sections or ['(none)']}\n\n"
                 f"Recent turns (oldest first):\n{history}\n\n"
                 f"Known vertex ids by label:\n{context.vertex_labels}\n\n"
@@ -737,6 +805,8 @@ def _materialize(
     allowed_vertex_props: dict[str, set[str]],
     allowed_edges: dict[str, tuple[str, str]],
     allowed_edge_props: dict[str, set[str]],
+    canonical_ids: dict[tuple[str, str], str] | None = None,
+    singleton_ids: dict[str, str] | None = None,
 ) -> ExtractionResult:
     vertices_in = tool_input.get("vertices", []) or []
     edges_in = tool_input.get("edges", []) or []
@@ -746,6 +816,9 @@ def _materialize(
 
     out_vertices: dict = {}
     out_edges: dict = {}
+    aliases: dict[str, str] = {}
+    known_canonical = dict(canonical_ids or {})
+    known_singletons = dict(singleton_ids or {})
 
     for v in vertices_in:
         label = v.get("label")
@@ -759,7 +832,7 @@ def _materialize(
         # to one vertex. The slug fix matters most for vocabulary types
         # (Quality, BodyLocation, Severity, ...) where the LLM emits
         # things like 'Quality:dull ache' vs 'Quality:dull-ache'.
-        vid = _normalize_vertex_id(vid)
+        original_vid = _normalize_vertex_id(vid)
         props_in = v.get("properties") or {}
         allowed = allowed_vertex_props[label]
         properties: dict = {}
@@ -781,6 +854,14 @@ def _materialize(
                 # Coerce anything else to string. Keeps the graph writable
                 # if the model emits an unexpected JSON shape.
                 properties[pg.PropertyKey(k)] = _lit(str(val))
+        identity = _identity_key(label, props_in)
+        vid = known_singletons.get(label, original_vid)
+        if identity is not None:
+            vid = known_canonical.get(identity, vid)
+            known_canonical.setdefault(identity, vid)
+        if label in _SINGLETON_LABELS:
+            known_singletons.setdefault(label, vid)
+        aliases[original_vid] = vid
         vid_lit = _lit(vid)
         out_vertices[vid_lit] = pg.Vertex(
             label=pg.VertexLabel(label), id=vid_lit,
@@ -799,8 +880,8 @@ def _materialize(
         # Normalize endpoint ids the same way we normalize vertex ids so
         # edges land on the right vertex even if the LLM produced a
         # slightly different slug.
-        out = _normalize_vertex_id(out)
-        in_ = _normalize_vertex_id(in_)
+        out = aliases.get(_normalize_vertex_id(out), _normalize_vertex_id(out))
+        in_ = aliases.get(_normalize_vertex_id(in_), _normalize_vertex_id(in_))
         # Defensive: if the model swapped out/in (Haiku sometimes reads
         # "triggers" as the trigger pointing at the headache), correct it.
         expected_out, expected_in = allowed_edges[label]
@@ -850,7 +931,8 @@ def _materialize(
     # asks the model to do this, but we shouldn't trust it.)
     next_headache_id: str | None = current_headache_id
     if new_headache_id:
-        next_headache_id = new_headache_id
+        normalized_headache_id = _normalize_vertex_id(new_headache_id)
+        next_headache_id = aliases.get(normalized_headache_id, normalized_headache_id)
     elif any(v.label.value == "Headache" for v in out_vertices.values()):
         # The model emitted a Headache but didn't flag a new id. If exactly
         # one Headache vertex appears, treat its id as the current one.
@@ -870,6 +952,54 @@ def _materialize(
         patient_signaled_done=signaled_done,
         patient_resumed=resumed,
     )
+
+
+def _validate_provenance_contract(
+    delta: pg.Graph,
+    edge_by_vertex: dict[str, str],
+) -> str | None:
+    if not edge_by_vertex:
+        return None
+    edges = list(delta.edges.values())
+    evidence_ids = {
+        vertex.id.value
+        for vertex in delta.vertices.values()
+        if vertex.label.value == "ProvenanceEvidence"
+    }
+    episode_ids = {
+        vertex.id.value
+        for vertex in delta.vertices.values()
+        if vertex.label.value == "TranscriptEpisode"
+    }
+    for vertex in delta.vertices.values():
+        if vertex.label.value != "ProvenanceEvidence":
+            continue
+        source = vertex.properties.get(pg.PropertyKey("sourceEpisode"))
+        source_id = getattr(source, "value", None)
+        if source_id not in episode_ids:
+            return (
+                f"ProvenanceEvidence {vertex.id.value!r} must reference a "
+                "TranscriptEpisode emitted in the same delta"
+            )
+    for vertex in delta.vertices.values():
+        expected = edge_by_vertex.get(vertex.label.value)
+        if expected is None:
+            continue
+        attached = [
+            edge for edge in edges
+            if edge.out.value == vertex.id.value and edge.label.value == expected
+        ]
+        if not attached:
+            return (
+                f"{vertex.label.value} {vertex.id.value!r} requires provenance "
+                f"edge {expected} in the same delta"
+            )
+        if any(edge.in_.value not in evidence_ids for edge in attached):
+            return (
+                f"{expected} from {vertex.id.value!r} must target a "
+                "ProvenanceEvidence vertex emitted in the same delta"
+            )
+    return None
 
 
 def synthesize_headache_id() -> str:

@@ -21,28 +21,29 @@
       "name": "required_properties_present",
       "scope": "delta",
       "severity": "hard",
-      "description": "Every vertex in the delta that has required properties (as declared in schema-hospitality.json) must include those properties with non-null, non-empty-string values.",
+      "description": "Every vertex in the delta that has required properties (as declared in hospitality/schema hospitality.json) must include those properties with non-null, non-empty-string values.",
       "required_properties_by_label": {
-        "GuestExperiencePrinciple": ["principleText"],
-        "ServiceStandard":          ["standardText"],
-        "GuestSignal":              ["signalText"],
-        "GuestPersona":             ["personaType"],
+        "GuestExperiencePrinciple": ["name"],
+        "ServiceStandard":          ["name"],
+        "GuestSignal":              ["name"],
+        "GuestPersona":             ["name"],
         "CheckInPolicy":            [],
         "CheckOutPolicy":           [],
         "TimingRule":               ["ruleText"],
-        "ServiceFailure":           ["failureType"],
-        "RecoveryAction":           ["actionText"],
-        "ExceptionRule":            ["triggerCondition"],
+        "ServiceFailure":           ["name"],
+        "RecoveryAction":           ["name"],
+        "ExceptionRule":            ["ruleText"],
         "DecisionRule":             ["ruleText"],
-        "OperatingHeuristic":       ["heuristicText"],
-        "LoyaltyDriver":            ["driverText"],
-        "EmotionalMoment":          ["momentText"],
-        "ContextualConstraint":     ["constraintType"],
-        "Outcome":                  ["outcomeType"],
+        "OperatingHeuristic":       ["name"],
+        "LoyaltyDriver":            ["name"],
+        "EmotionalMoment":          ["name"],
+        "ContextualConstraint":     [],
+        "Outcome":                  [],
         "ProvenanceEvidence":       ["traceText", "sourceEpisode", "speaker"],
         "KnowledgeSession":         ["domain"],
         "Person":                   [],
-        "TranscriptEpisode":        ["order"]
+        "SessionSection":           ["sectionType", "order"],
+        "TranscriptEpisode":        ["verbatimText"]
       },
       "error_message": "Vertex '{vertex_id}' (label: '{label}') is missing required property '{property}'. Add the property before re-emitting.",
       "check": "for each vertex v in delta: for each required_prop in required_properties_by_label[v.label]: assert v.properties[required_prop] is not null and not ''"
@@ -53,7 +54,7 @@
       "name": "no_unknown_vertex_labels",
       "scope": "delta",
       "severity": "hard",
-      "description": "Every vertex label in the delta must be one of the labels declared in schema-hospitality.json. Invented labels are never permitted.",
+      "description": "Every vertex label in the delta must be declared in hospitality/schema hospitality.json. Invented labels are never permitted.",
       "allowed_vertex_labels": [
         "Person", "KnowledgeSession", "SessionSection", "TranscriptEpisode", "ProvenanceEvidence",
         "GuestPersona", "GuestSignal", "GuestExperiencePrinciple", "ServiceStandard",
@@ -61,7 +62,7 @@
         "ServiceFailure", "RecoveryAction", "ExceptionRule", "LoyaltyDriver", "EmotionalMoment",
         "ContextualConstraint", "Outcome"
       ],
-      "error_message": "Unknown vertex label '{label}' in delta. Only labels declared in schema-hospitality.json are permitted. If the schema has no home for this concept, use the Comment escape hatch pattern defined in the extractor prompt.",
+      "error_message": "Unknown vertex label '{label}' in delta. Only labels declared in hospitality/schema hospitality.json are permitted. If the schema has no home, log SCHEMA_GAP; do not invent a Comment vertex.",
       "check": "for each vertex v in delta: assert v.label in allowed_vertex_labels"
     },
 
@@ -70,22 +71,29 @@
       "name": "no_unknown_edge_labels",
       "scope": "delta",
       "severity": "hard",
-      "description": "Every edge label in the delta must be one of the edge labels declared in schema-hospitality.json.",
+      "description": "Every edge label in the delta must be declared in hospitality/schema hospitality.json.",
       "allowed_edge_labels": [
         "hasSession", "hasSection", "hasEpisode",
         "discusses", "discussesRule", "discussesFailure", "discussesHeuristic",
         "appliesToPersona", "standardEnforces",
         "signalIndicates", "signalTriggers",
         "principleSupportedBy", "heuristicSupportedBy", "supportedBy",
+        "serviceStandardSupportedBy", "guestSignalSupportedBy",
+        "guestPersonaSupportedBy", "checkInPolicySupportedBy",
+        "checkOutPolicySupportedBy", "timingRuleSupportedBy",
+        "serviceFailureSupportedBy", "recoveryActionSupportedBy",
+        "exceptionRuleSupportedBy", "loyaltyDriverSupportedBy",
+        "emotionalMomentSupportedBy", "contextualConstraintSupportedBy",
+        "outcomeSupportedBy",
         "governs", "governsCheckOut",
         "resolvedBy", "recoveryLeadsTo",
         "exceptionAppliesTo", "exceptionMadeFor",
         "leadsTo", "loyaltyLeadsTo",
-        "modulatedBy", "constraintAffectsPolicy",
+        "modulatedBy", "constraintAffectsPolicy", "constraintAffectsCheckOutPolicy",
         "shapesLoyalty", "drivenBy",
         "heuristicExplains"
       ],
-      "error_message": "Unknown edge label '{label}' in delta. Only edge labels declared in schema-hospitality.json are permitted. Never invent an edge label.",
+      "error_message": "Unknown edge label '{label}' in delta. Only edge labels declared in hospitality/schema hospitality.json are permitted. Never invent an edge label.",
       "check": "for each edge e in delta: assert e.label in allowed_edge_labels"
     },
 
@@ -94,7 +102,7 @@
       "name": "edge_endpoint_types_match_schema",
       "scope": "delta",
       "severity": "hard",
-      "description": "Every edge in the delta must connect vertex labels that match the (out, in) declaration in schema-hospitality.json. An edge used with wrong endpoint types is rejected.",
+      "description": "Every edge in the delta must connect vertex labels matching hospitality/schema hospitality.json. Wrong endpoint types are rejected.",
       "edge_endpoint_map": {
         "hasSession":              { "out": "Person",                 "in": "KnowledgeSession"         },
         "hasSection":              { "out": "KnowledgeSession",       "in": "SessionSection"           },
@@ -108,15 +116,21 @@
         "signalIndicates":         { "out": "GuestSignal",            "in": "GuestPersona"             },
         "signalTriggers":          { "out": "GuestSignal",            "in": "DecisionRule"             },
         "principleSupportedBy":    { "out": "GuestExperiencePrinciple","in": "ProvenanceEvidence"      },
-        "heuristicSupportedBy":    { "out_any_of": ["OperatingHeuristic", "TimingRule"], "in": "ProvenanceEvidence" },
-        "supportedBy":             {
-          "out_any_of": [
-            "ServiceStandard", "GuestSignal", "GuestPersona", "CheckInPolicy", "CheckOutPolicy",
-            "ServiceFailure", "RecoveryAction", "ExceptionRule", "DecisionRule",
-            "LoyaltyDriver", "EmotionalMoment", "ContextualConstraint", "Outcome"
-          ],
-          "in": "ProvenanceEvidence"
-        },
+        "heuristicSupportedBy":    { "out": "OperatingHeuristic", "in": "ProvenanceEvidence" },
+        "supportedBy":             { "out": "DecisionRule", "in": "ProvenanceEvidence" },
+        "serviceStandardSupportedBy": { "out": "ServiceStandard", "in": "ProvenanceEvidence" },
+        "guestSignalSupportedBy": { "out": "GuestSignal", "in": "ProvenanceEvidence" },
+        "guestPersonaSupportedBy": { "out": "GuestPersona", "in": "ProvenanceEvidence" },
+        "checkInPolicySupportedBy": { "out": "CheckInPolicy", "in": "ProvenanceEvidence" },
+        "checkOutPolicySupportedBy": { "out": "CheckOutPolicy", "in": "ProvenanceEvidence" },
+        "timingRuleSupportedBy": { "out": "TimingRule", "in": "ProvenanceEvidence" },
+        "serviceFailureSupportedBy": { "out": "ServiceFailure", "in": "ProvenanceEvidence" },
+        "recoveryActionSupportedBy": { "out": "RecoveryAction", "in": "ProvenanceEvidence" },
+        "exceptionRuleSupportedBy": { "out": "ExceptionRule", "in": "ProvenanceEvidence" },
+        "loyaltyDriverSupportedBy": { "out": "LoyaltyDriver", "in": "ProvenanceEvidence" },
+        "emotionalMomentSupportedBy": { "out": "EmotionalMoment", "in": "ProvenanceEvidence" },
+        "contextualConstraintSupportedBy": { "out": "ContextualConstraint", "in": "ProvenanceEvidence" },
+        "outcomeSupportedBy": { "out": "Outcome", "in": "ProvenanceEvidence" },
         "governs":                 { "out": "CheckInPolicy",          "in": "TimingRule"               },
         "governsCheckOut":         { "out": "CheckOutPolicy",         "in": "TimingRule"               },
         "resolvedBy":              { "out": "ServiceFailure",         "in": "RecoveryAction"           },
@@ -128,8 +142,9 @@
         "modulatedBy":             { "out": "ContextualConstraint",   "in": "DecisionRule"             },
         "constraintAffectsPolicy": {
           "out": "ContextualConstraint",
-          "in_any_of": ["CheckInPolicy", "CheckOutPolicy"]
+          "in": "CheckInPolicy"
         },
+        "constraintAffectsCheckOutPolicy": { "out": "ContextualConstraint", "in": "CheckOutPolicy" },
         "shapesLoyalty":           { "out": "EmotionalMoment",        "in": "LoyaltyDriver"            },
         "drivenBy":                { "out": "LoyaltyDriver",          "in": "GuestPersona"             },
         "heuristicExplains":       { "out": "OperatingHeuristic",     "in": "DecisionRule"             }
@@ -152,16 +167,25 @@
       "rule_id": "HR006",
       "name": "provenance_attached_to_knowledge_vertices",
       "scope": "delta",
-      "severity": "soft",
-      "description": "Every knowledge vertex emitted in this delta must have at least one outgoing provenance edge (supportedBy, principleSupportedBy, or heuristicSupportedBy) pointing to a ProvenanceEvidence vertex in this delta or already in the graph. Infrastructure vertices (Person, KnowledgeSession, SessionSection, TranscriptEpisode, ProvenanceEvidence itself) are exempt.",
+      "severity": "hard",
+      "description": "Every knowledge vertex emitted in this delta must have its label-specific outgoing provenance edge to a ProvenanceEvidence vertex in this delta or already in the graph. Infrastructure vertices are exempt.",
       "knowledge_vertex_labels": [
         "GuestExperiencePrinciple", "ServiceStandard", "GuestSignal", "GuestPersona",
         "CheckInPolicy", "CheckOutPolicy", "TimingRule", "ServiceFailure", "RecoveryAction",
         "ExceptionRule", "DecisionRule", "OperatingHeuristic", "LoyaltyDriver",
         "EmotionalMoment", "ContextualConstraint", "Outcome"
       ],
-      "provenance_edge_labels": ["supportedBy", "principleSupportedBy", "heuristicSupportedBy"],
-      "error_message": "WARNING: Knowledge vertex '{vertex_id}' (label: '{label}') was emitted without a provenance edge. Delta written. Session flagged for post-hoc provenance repair.",
+      "provenance_edge_labels": [
+        "supportedBy", "principleSupportedBy", "heuristicSupportedBy",
+        "serviceStandardSupportedBy", "guestSignalSupportedBy",
+        "guestPersonaSupportedBy", "checkInPolicySupportedBy",
+        "checkOutPolicySupportedBy", "timingRuleSupportedBy",
+        "serviceFailureSupportedBy", "recoveryActionSupportedBy",
+        "exceptionRuleSupportedBy", "loyaltyDriverSupportedBy",
+        "emotionalMomentSupportedBy", "contextualConstraintSupportedBy",
+        "outcomeSupportedBy"
+      ],
+      "error_message": "Knowledge vertex '{vertex_id}' (label: '{label}') has no label-specific provenance edge. Reject and retry.",
       "check": "for each vertex v in delta where v.label in knowledge_vertex_labels: assert exists edge e in (delta_edges UNION graph_edges) where e.out_id == v.id AND e.label in provenance_edge_labels"
     },
 
@@ -169,27 +193,27 @@
       "rule_id": "HR007",
       "name": "correct_provenance_edge_type_by_vertex",
       "scope": "delta",
-      "severity": "soft",
-      "description": "Each knowledge vertex type must use the correct provenance edge type as specified in provenance_spec.json. Using supportedBy instead of principleSupportedBy on a GuestExperiencePrinciple is a soft failure — the provenance exists but is mistyped, degrading downstream query precision.",
+      "severity": "hard",
+      "description": "Each knowledge vertex type must use the correct provenance edge type specified in hospitality/provenance spec.json. A mistyped provenance edge degrades downstream query precision.",
       "provenance_edge_by_label": {
         "GuestExperiencePrinciple": "principleSupportedBy",
         "OperatingHeuristic":       "heuristicSupportedBy",
-        "TimingRule":               "heuristicSupportedBy",
-        "ServiceStandard":          "supportedBy",
-        "GuestSignal":              "supportedBy",
-        "GuestPersona":             "supportedBy",
-        "CheckInPolicy":            "supportedBy",
-        "CheckOutPolicy":           "supportedBy",
-        "ServiceFailure":           "supportedBy",
-        "RecoveryAction":           "supportedBy",
-        "ExceptionRule":            "supportedBy",
+        "TimingRule":               "timingRuleSupportedBy",
+        "ServiceStandard":          "serviceStandardSupportedBy",
+        "GuestSignal":              "guestSignalSupportedBy",
+        "GuestPersona":             "guestPersonaSupportedBy",
+        "CheckInPolicy":            "checkInPolicySupportedBy",
+        "CheckOutPolicy":           "checkOutPolicySupportedBy",
+        "ServiceFailure":           "serviceFailureSupportedBy",
+        "RecoveryAction":           "recoveryActionSupportedBy",
+        "ExceptionRule":            "exceptionRuleSupportedBy",
         "DecisionRule":             "supportedBy",
-        "LoyaltyDriver":            "supportedBy",
-        "EmotionalMoment":          "supportedBy",
-        "ContextualConstraint":     "supportedBy",
-        "Outcome":                  "supportedBy"
+        "LoyaltyDriver":            "loyaltyDriverSupportedBy",
+        "EmotionalMoment":          "emotionalMomentSupportedBy",
+        "ContextualConstraint":     "contextualConstraintSupportedBy",
+        "Outcome":                  "outcomeSupportedBy"
       },
-      "error_message": "WARNING: Vertex '{vertex_id}' (label: '{label}') uses provenance edge '{actual_edge}' but should use '{expected_edge}'. Delta written. This degrades query precision — repair post-session.",
+      "error_message": "Vertex '{vertex_id}' (label: '{label}') uses provenance edge '{actual_edge}' but must use '{expected_edge}'. Reject and retry.",
       "check": "for each vertex v in delta where v.label in provenance_edge_by_label: for each provenance_edge e attached to v: assert e.label == provenance_edge_by_label[v.label]"
     },
 
@@ -292,9 +316,9 @@
       "name": "operating_heuristic_has_heuristic_text",
       "scope": "delta",
       "severity": "hard",
-      "description": "OperatingHeuristic.heuristicText must be a non-empty string expressing a specific pattern or intuitive rule the expert has refined through experience. It is the primary value payload of the OperatingHeuristic vertex.",
-      "error_message": "OperatingHeuristic '{vertex_id}' has heuristicText='{value}' which is empty or a placeholder. Provide the expert's specific heuristic verbatim or as a faithful paraphrase.",
-      "check": "for each vertex v in delta where v.label == 'OperatingHeuristic': assert v.properties.heuristicText is not null AND len(v.properties.heuristicText) > 10"
+      "description": "OperatingHeuristic.heuristic must be a non-empty string expressing a specific pattern or intuitive rule the expert has refined through experience.",
+      "error_message": "OperatingHeuristic '{vertex_id}' has heuristic='{value}' which is empty or a placeholder. Provide the expert's specific heuristic verbatim or as a faithful paraphrase.",
+      "check": "for each vertex v in delta where v.label == 'OperatingHeuristic': assert v.properties.heuristic is not null AND len(v.properties.heuristic) > 10"
     },
 
     {
@@ -305,7 +329,12 @@
       "description": "At session close, the graph must contain SessionSection vertices for sections A (introduction), B (guest experience principles), and C (arrival/check-in/timing). These three sections are foundational — without them the graph lacks the session root (A), the principles layer (B), and the policy singleton layer (C). Missing any of these is a significant knowledge gap.",
       "required_section_ids": ["A", "B", "C"],
       "error_message": "WARNING: Session '{session_id}' completed without section '{section_id}' ({section_title}). The hospitality knowledge graph for this session is missing foundational knowledge. Consider scheduling a follow-up session to cover this section.",
-      "check": "for each section_id in required_section_ids: assert exists SessionSection vertex in graph where section_id property == section_id AND linked to current KnowledgeSession"
+      "required_section_types": {
+        "A": "introduction",
+        "B": "guest_experience_principles",
+        "C": "arrival_checkin_timing"
+      },
+      "check": "for each required section type: assert exists SessionSection vertex in graph with matching sectionType and linked to current KnowledgeSession"
     },
 
     {
@@ -313,9 +342,9 @@
       "name": "no_duplicate_guest_persona",
       "scope": "session_close",
       "severity": "soft",
-      "description": "GuestPersona vertices with identical personaType values within the same session indicate the extractor minted a duplicate instead of reusing an existing ID. Duplicates degrade query quality — persona-linked loyalty drivers and decision rules will not consolidate correctly.",
-      "error_message": "WARNING: Session '{session_id}' contains {count} GuestPersona vertices with personaType='{personaType}'. Only one should exist per persona type per session. Review and merge duplicates.",
-      "check": "assert no two GuestPersona vertices in the session share the same personaType property value"
+      "description": "GuestPersona vertices with identical normalized name values within the same session indicate the extractor minted a duplicate instead of reusing an existing ID.",
+      "error_message": "WARNING: Session '{session_id}' contains {count} GuestPersona vertices with name='{name}'. Only one should exist per normalized name per session. Review and merge duplicates.",
+      "check": "assert no two GuestPersona vertices in the session share the same normalized name property value"
     },
 
     {
@@ -323,9 +352,9 @@
       "name": "no_duplicate_guest_signal",
       "scope": "session_close",
       "severity": "soft",
-      "description": "GuestSignal vertices with identical signalText values within the same session indicate the extractor minted a duplicate instead of reusing an existing ID from the vertex cache.",
-      "error_message": "WARNING: Session '{session_id}' contains {count} GuestSignal vertices with signalText='{signalText}'. Only one should exist per unique signal per session. Review and merge duplicates.",
-      "check": "assert no two GuestSignal vertices in the session share the same signalText property value (case-insensitive)"
+      "description": "GuestSignal vertices with identical normalized name values within the same session indicate the extractor minted a duplicate instead of reusing an existing ID from the vertex cache.",
+      "error_message": "WARNING: Session '{session_id}' contains {count} GuestSignal vertices with name='{name}'. Only one should exist per normalized name per session. Review and merge duplicates.",
+      "check": "assert no two GuestSignal vertices in the session share the same normalized name property value"
     },
 
     {
@@ -356,7 +385,7 @@
       "scope": "session_close",
       "severity": "advisory",
       "description": "Every ServiceFailure vertex should have at least one outgoing resolvedBy edge to a RecoveryAction vertex. A ServiceFailure without a recovery action is a knowledge gap — the expert described a problem but the extractor did not capture how they resolve it. Advisory only — the expert may have simply not volunteered this information.",
-      "error_message": "ADVISORY: ServiceFailure '{vertex_id}' (failureType: '{failureType}') has no resolvedBy edge to a RecoveryAction. This may be an extraction gap — review the transcript around the episode that produced this vertex.",
+      "error_message": "ADVISORY: ServiceFailure '{vertex_id}' (name: '{name}') has no resolvedBy edge to a RecoveryAction. This may be an extraction gap — review the transcript around the episode that produced this vertex.",
       "check": "for each ServiceFailure vertex v in session: assert exists edge e where e.out_id == v.id AND e.label == 'resolvedBy'"
     },
 
@@ -376,8 +405,8 @@
       "scope": "session_close",
       "severity": "advisory",
       "description": "LoyaltyDriver vertices should have at least one drivenBy edge (linking to a GuestPersona) or one loyaltyLeadsTo edge (linking to an Outcome). A LoyaltyDriver with neither connection is floating tacit knowledge with no graph context.",
-      "error_message": "ADVISORY: LoyaltyDriver '{vertex_id}' (driverText: '{driverText_preview}') has no drivenBy or loyaltyLeadsTo edges. Consider linking it to a GuestPersona or Outcome in a post-session enrichment pass.",
-      "check": "for each LoyaltyDriver vertex v in session: assert exists edge e where (e.out_id == v.id AND e.label == 'loyaltyLeadsTo') OR (e.in_id == v.id AND e.label == 'drivenBy')"
+      "error_message": "ADVISORY: LoyaltyDriver '{vertex_id}' (name: '{name_preview}') has no drivenBy or loyaltyLeadsTo edges. Consider linking it to a GuestPersona or Outcome in a post-session enrichment pass.",
+      "check": "for each LoyaltyDriver vertex v in session: assert exists edge e where e.out_id == v.id AND e.label in ['loyaltyLeadsTo', 'drivenBy']"
     },
 
     {
@@ -410,8 +439,8 @@
   ],
 
   "rule_summary": {
-    "delta_hard":    ["HR001", "HR002", "HR003", "HR004", "HR005", "HR008", "HR009", "HR010", "HR011", "HR012", "HR014", "HR015"],
-    "delta_soft":    ["HR006", "HR007", "HR013"],
+    "delta_hard":    ["HR001", "HR002", "HR003", "HR004", "HR005", "HR006", "HR007", "HR008", "HR009", "HR010", "HR011", "HR012", "HR014", "HR015"],
+    "delta_soft":    ["HR013"],
     "session_soft":  ["HR016", "HR017", "HR018", "HR019", "HR020", "HR025"],
     "session_advisory": ["HR021", "HR022", "HR023", "HR024"],
     "total_rules": 25
