@@ -3,10 +3,17 @@ import { NextResponse } from "next/server";
 import { getDomain, isDomainId } from "@/lib/domains";
 import { extractGraphDelta } from "@/lib/server/extract";
 import {
-  activeSectionInstruction,
-  activeSectionOrder,
-  graphMatchesDomain
+  graphMatchesDomain,
+  mergeDelta,
+  sectionInfrastructureDelta,
+  validateSessionGraph
 } from "@/lib/schema";
+import {
+  advanceInterview,
+  initialInterviewState,
+  isExpertDomain
+} from "@/lib/interview";
+import { nextEpisodeId } from "@/lib/server/extract";
 import type { ChatMessage, ChatRequest, GraphDelta } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -53,13 +60,16 @@ export async function POST(request: Request) {
 
   const openai = new OpenAI({ apiKey });
   const domain = getDomain(body.domainId);
-  const sectionOrder = activeSectionOrder(body.domainId, body.graph, body.messages);
-  const agentPromise = runAgent(
-    openai,
-    body.messages,
-    domain.conversationPrompt,
-    activeSectionInstruction(body.domainId, sectionOrder)
-  );
+  const interviewResult = isExpertDomain(body.domainId)
+    ? advanceInterview(
+        body.domainId,
+        body.interview ?? initialInterviewState(body.domainId)!,
+        latestUser.content
+      )
+    : null;
+  const agentPromise = interviewResult
+    ? Promise.resolve(interviewResult.reply)
+    : runAgent(openai, body.messages, domain.conversationPrompt);
   const extractorPromise = extractGraphDelta(openai, latestUser.content, body);
   const [agentResult, extractorResult] = await Promise.allSettled([
     agentPromise,
@@ -82,6 +92,24 @@ export async function POST(request: Request) {
     warnings.push("Graph extraction failed for this turn.");
   }
 
+  if (interviewResult) {
+    const assistantInfrastructure = sectionInfrastructureDelta(
+      body.domainId,
+      mergeDelta(body.graph, delta),
+      interviewResult.state.sectionOrder
+    );
+    delta = mergeGraphDeltas(delta, assistantInfrastructure);
+    delta = mergeGraphDeltas(
+      delta,
+      interviewerEpisodeDelta(
+        body,
+        delta,
+        interviewResult.reply,
+        interviewResult.state.sectionOrder
+      )
+    );
+  }
+
   const assistantMessage: ChatMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
@@ -89,26 +117,46 @@ export async function POST(request: Request) {
     createdAt: Date.now()
   };
 
-  return NextResponse.json({ assistantMessage, delta, warnings });
+  const schemaGapAudit = warnings
+    .filter((warning) => warning.startsWith("SCHEMA_GAP:"))
+    .map((warning) => ({
+      ruleId: "SCHEMA_GAP",
+      severity: "advisory" as const,
+      message: warning.slice("SCHEMA_GAP:".length).trim()
+    }));
+  const closureAudit =
+    interviewResult?.state.phase === "closure" ||
+    interviewResult?.state.phase === "complete"
+      ? validateSessionGraph(mergeDelta(body.graph, delta), body.domainId)
+      : [];
+  const audit = [
+    ...new Map(
+      [...(body.audit ?? []), ...schemaGapAudit, ...closureAudit].map((finding) => [
+        `${finding.ruleId}\u0000${finding.message}`,
+        finding
+      ])
+    ).values()
+  ];
+  return NextResponse.json({
+    assistantMessage,
+    delta,
+    warnings,
+    interview: interviewResult?.state,
+    audit
+  });
 }
 
 async function runAgent(
   openai: OpenAI,
   messages: ChatMessage[],
-  systemPrompt: string,
-  sectionInstruction: string
+  systemPrompt: string
 ): Promise<string> {
   const normalizedMessages = normalizeOpenAIMessages(messages);
   const response = await openai.chat.completions.create({
     model: process.env.CHATGRAPH_AGENT_MODEL || DEFAULT_AGENT_MODEL,
     max_completion_tokens: 420,
     messages: [
-      {
-        role: "system",
-        content: sectionInstruction
-          ? `${systemPrompt}\n\n${sectionInstruction}`
-          : systemPrompt
-      },
+      { role: "system", content: systemPrompt },
       ...normalizedMessages.slice(-40).map((message) => ({
         role: message.role as "user" | "assistant",
         content: message.content
@@ -117,6 +165,49 @@ async function runAgent(
   });
   const text = response.choices[0].message.content?.trim();
   return enforceOneQuestion(text || "I hear you. Could you tell me a little more?");
+}
+
+function mergeGraphDeltas(...deltas: GraphDelta[]): GraphDelta {
+  const vertices = new Map<string, GraphDelta["vertices"][number]>();
+  const edges = new Map<string, GraphDelta["edges"][number]>();
+  for (const delta of deltas) {
+    for (const vertex of delta.vertices) vertices.set(vertex.id, vertex);
+    for (const edge of delta.edges) edges.set(edge.id, edge);
+  }
+  return { vertices: [...vertices.values()], edges: [...edges.values()] };
+}
+
+function interviewerEpisodeDelta(
+  body: ChatRequest,
+  pending: GraphDelta,
+  text: string,
+  sectionOrder: number
+): GraphDelta {
+  const graph = mergeDelta(body.graph, pending);
+  const session = Object.values(graph.vertices).find(
+    (vertex) => vertex.label === "KnowledgeSession"
+  );
+  const section = Object.values(graph.vertices).find(
+    (vertex) =>
+      vertex.label === "SessionSection" &&
+      Number(vertex.properties.order) === sectionOrder
+  );
+  if (!session || !section) return { vertices: [], edges: [] };
+  const episodeId = nextEpisodeId(graph, session.id);
+  return {
+    vertices: [{
+      id: episodeId,
+      label: "TranscriptEpisode",
+      properties: { verbatimText: text, speaker: "interviewer" }
+    }],
+    edges: [{
+      id: `${section.id}-hasEpisode->${episodeId}`,
+      label: "hasEpisode",
+      out: section.id,
+      in: episodeId,
+      properties: {}
+    }]
+  };
 }
 
 function normalizeOpenAIMessages(messages: ChatMessage[]): ChatMessage[] {

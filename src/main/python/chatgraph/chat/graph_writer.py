@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING
 
 log = logging.getLogger(__name__)
@@ -43,10 +44,12 @@ class GremlinWriter:
 
     def __init__(
         self,
-        url: str = DEFAULT_URL,
+        url: str | None = None,
         traversal_source: str = DEFAULT_TRAVERSAL_SOURCE,
     ) -> None:
-        self._url = url
+        host = os.environ.get("GREMLIN_HOST", "localhost")
+        port = os.environ.get("GREMLIN_PORT", "8182")
+        self._url = url or f"ws://{host}:{port}/gremlin"
         self._traversal_source = traversal_source
         self._conn = None
         self._g = None
@@ -89,18 +92,25 @@ class GremlinWriter:
             tx.rollback()
             return conn, g
 
-        try:
-            self._conn, self._g = await loop.run_in_executor(None, _do_connect)
-            log.info("GremlinWriter: connected to %s", self._url)
-        except Exception:
-            log.warning(
-                "GremlinWriter: could not connect to %s; graph writes "
-                "will be skipped this session",
-                self._url,
-                exc_info=False,
-            )
-            self._conn = None
-            self._g = None
+        for attempt in range(1, 4):
+            try:
+                self._conn, self._g = await asyncio.wait_for(
+                    loop.run_in_executor(None, _do_connect),
+                    timeout=5,
+                )
+                log.info("GremlinWriter: connected to %s", self._url)
+                return
+            except Exception:
+                self._conn = None
+                self._g = None
+                if attempt < 3:
+                    await asyncio.sleep(0.25 * attempt)
+        log.warning(
+            "GremlinWriter: could not connect to %s after 3 attempts; "
+            "graph writes will be skipped this session",
+            self._url,
+            exc_info=False,
+        )
 
     async def _close(self) -> None:
         if self._conn is None:
@@ -194,11 +204,28 @@ class GremlinWriter:
                     tx.rollback()
                     raise
 
-            try:
-                await loop.run_in_executor(None, _do_write)
+            last_error = None
+            for attempt in range(1, 4):
+                try:
+                    await loop.run_in_executor(None, _do_write)
+                    last_error = None
+                    break
+                except Exception as error:
+                    last_error = error
+                    log.warning(
+                        "GremlinWriter: write failed (attempt %d/3)",
+                        attempt,
+                        exc_info=True,
+                    )
+                    if attempt < 3:
+                        await self._close()
+                        await self._connect()
+                        if self._g is None:
+                            break
+            if last_error is None:
                 if done_future is not None and not done_future.done():
                     done_future.set_result(None)
-            except Exception as e:
-                log.exception("GremlinWriter: write failed (continuing)")
+            else:
+                log.error("GremlinWriter: write failed after retries")
                 if done_future is not None and not done_future.done():
-                    done_future.set_exception(e)
+                    done_future.set_exception(last_error)

@@ -62,6 +62,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -114,7 +115,51 @@ _IDENTITY_PROPERTY_BY_LABEL = {
     "Pitfall": "description",
 }
 
-_SINGLETON_LABELS = {"CheckInPolicy", "CheckOutPolicy"}
+_SINGLETON_LABELS = {
+    "Person",
+    "KnowledgeSession",
+    "CheckInPolicy",
+    "CheckOutPolicy",
+}
+
+_ID_PREFIX_BY_LABEL = {
+    "Person": "person:",
+    "KnowledgeSession": "session:",
+    "SessionSection": "section:",
+    "TranscriptEpisode": "ep:",
+    "ProvenanceEvidence": "prov:",
+    "GuestExperiencePrinciple": "principle:",
+    "ServiceStandard": "standard:",
+    "GuestSignal": "signal:",
+    "GuestPersona": "persona:",
+    "CheckInPolicy": "policy:checkin:",
+    "CheckOutPolicy": "policy:checkout:",
+    "TimingRule": "timing:",
+    "ServiceFailure": "failure:",
+    "RecoveryAction": "recovery:",
+    "ExceptionRule": "exception:",
+    "DecisionRule": "rule:",
+    "OperatingHeuristic": "heuristic:",
+    "LoyaltyDriver": "loyalty:",
+    "EmotionalMoment": "moment:",
+    "HypertensionConcept": "concept:",
+    "BloodPressureMeasurement": "bp:",
+    "DiagnosticCriterion": "criterion:",
+    "ClinicalFinding": "finding:",
+    "Symptom": "symptom:",
+    "Comorbidity": "comorbidity:",
+    "RiskFactor": "riskfactor:",
+    "SecondaryCause": "secondary:",
+    "DiagnosticTest": "test:",
+    "Medication": "med:",
+    "LifestyleIntervention": "lifestyle:",
+    "FollowUpPlan": "followup:",
+    "ClinicalReasoningPattern": "pattern:",
+    "Pitfall": "pitfall:",
+    "CaseScenario": "case:",
+    "ContextualConstraint": "constraint:",
+    "Outcome": "outcome:",
+}
 
 
 def _identity_key(label: str, properties: dict) -> tuple[str, str] | None:
@@ -251,7 +296,9 @@ class RollingContext:
     # chatgraph.chat.validation for the full rationale.
     vertex_labels: dict = field(default_factory=dict)
     utterance_sequence: int = 0
+    episode_sequence: int = 0
     active_section_order: int = 1
+    active_question_index: int = 0
     canonical_ids: dict[tuple[str, str], str] = field(default_factory=dict)
     singleton_ids: dict[str, str] = field(default_factory=dict)
 
@@ -270,6 +317,8 @@ class RollingContext:
 
     def add(self, speaker: str, text: str) -> None:
         self.window.append({"speaker": speaker, "text": text})
+        if speaker in {"patient", "expert", "agent", "interviewer"}:
+            self.episode_sequence += 1
         if speaker in {"patient", "expert"}:
             self.utterance_sequence += 1
 
@@ -505,6 +554,15 @@ def _build_extract_tool(
                         "questions. Set false otherwise."
                     ),
                 },
+                "schema_gaps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Hospitality only. Substantive expert knowledge that "
+                        "cannot fit any declared schema label or edge. Never "
+                        "invent a label."
+                    ),
+                },
             },
             "required": ["vertices", "edges"],
         },
@@ -517,6 +575,7 @@ class ExtractionResult:
     new_current_headache_id: str | None = None
     patient_signaled_done: bool = False
     patient_resumed: bool = False
+    schema_gaps: tuple[str, ...] = ()
 
 
 class Extractor:
@@ -568,6 +627,14 @@ class Extractor:
             self._provenance_edge_by_vertex = provenance_spec.get(
                 "attachment_rules", {}
             ).get("edge_label_by_vertex", {})
+        self._sections: dict[int, dict] = {}
+        if domain.section_map_path is not None:
+            with domain.section_map_path.open(encoding="utf-8") as handle:
+                section_map = json.load(handle)
+            self._sections = {
+                int(section["order"]): section
+                for section in section_map.get("sections", [])
+            }
 
         # System prompt = domain-supplied intro + schema reference.
         self._system_prompt = domain.extractor_prompt_intro + _format_schema_reference(
@@ -597,8 +664,70 @@ class Extractor:
         failure, also returns an empty result; never raises.
         """
         from chatgraph.chat.validation import validate_delta
+        from chatgraph.chat.interview import (
+            InterviewState,
+            current_question_minimum_words,
+        )
+
+        if (
+            self._domain.name == "hospitality"
+            and current_question_minimum_words(
+                self._domain.name,
+                InterviewState(
+                    section_order=context.active_section_order,
+                    question_index=context.active_question_index,
+                ),
+            ) > 1
+            and len(utterance.strip().split()) < 5
+            and re.fullmatch(
+                r"(yes|no|okay|ok|sure|exactly|mm+hmm|can you repeat that)",
+                utterance.strip().lower(),
+            )
+        ):
+            return _ensure_expert_episode(
+                ExtractionResult(delta=_empty_graph()),
+                utterance=utterance,
+                context=context,
+            )
 
         user_msg = self._build_user_message(utterance, context)
+        allowed_vertex_props = self._allowed_vertex_props
+        allowed_edges = self._allowed_edges
+        allowed_edge_props = self._allowed_edge_props
+        section = self._sections.get(context.active_section_order)
+        if section is not None:
+            section_labels = set(section.get("primary_vertex_labels", []))
+            section_labels.update({
+                "SessionSection",
+                "TranscriptEpisode",
+                "ProvenanceEvidence",
+            })
+            allowed_vertex_props = {
+                label: props
+                for label, props in self._allowed_vertex_props.items()
+                if label in section_labels
+            }
+            section_edge_labels = {
+                pattern["edge"]
+                for pattern in section.get("edge_patterns", [])
+            }
+            section_edge_labels.update({
+                label
+                for label, (_, in_label) in self._allowed_edges.items()
+                if in_label == "ProvenanceEvidence"
+            })
+            section_edge_labels.update({"hasEpisode", "hasSection"})
+            allowed_edges = {
+                label: endpoints
+                for label, endpoints in self._allowed_edges.items()
+                if label in section_edge_labels
+            }
+            allowed_edge_props = {
+                label: props
+                for label, props in self._allowed_edge_props.items()
+                if label in section_edge_labels
+            }
+        tool = _build_extract_tool(allowed_vertex_props, allowed_edges)
         # Mutable message history: grows with each corrective retry so
         # the model can see its prior tool_use and the validation feedback.
         messages: list[dict] = [{"role": "user", "content": user_msg}]
@@ -610,7 +739,7 @@ class Extractor:
                     model=self._model,
                     max_tokens=1024,
                     system=self._system_prompt,
-                    tools=[self._tool],
+                    tools=[tool],
                     tool_choice={"type": "tool", "name": "emit_graph_delta"},
                     messages=messages,
                 )
@@ -633,12 +762,18 @@ class Extractor:
                 result = _materialize(
                     args,
                     current_headache_id=context.current_headache_id,
-                    allowed_vertex_props=self._allowed_vertex_props,
-                    allowed_edges=self._allowed_edges,
-                    allowed_edge_props=self._allowed_edge_props,
+                    allowed_vertex_props=allowed_vertex_props,
+                    allowed_edges=allowed_edges,
+                    allowed_edge_props=allowed_edge_props,
                     canonical_ids=context.canonical_ids,
                     singleton_ids=context.singleton_ids,
                 )
+                if self._domain.session_infrastructure:
+                    result = _ensure_expert_episode(
+                        result,
+                        utterance=utterance,
+                        context=context,
+                    )
             except Exception:
                 log.exception("Extractor: failed to materialize delta")
                 return ExtractionResult(delta=_empty_graph())
@@ -647,8 +782,10 @@ class Extractor:
                 self._schema, result.delta, context.vertex_labels
             )
             contract_error = (
-                _validate_provenance_contract(
-                    result.delta, self._provenance_edge_by_vertex
+                _validate_domain_contract(
+                    result.delta,
+                    self._provenance_edge_by_vertex,
+                    self._domain.name,
                 )
                 if validation.is_valid
                 else None
@@ -703,11 +840,19 @@ class Extractor:
                 f"session:{domain_name}:unknown",
             )
             episode_id = (
-                f"ep:{session_id}:{max(context.utterance_sequence, 1):02d}"
+                f"ep:{session_id}:{max(context.episode_sequence, 1):02d}"
             )
             sections = sorted(
                 vid for vid, label in context.vertex_labels.items()
                 if label == "SessionSection"
+            )
+            section = self._sections.get(context.active_section_order, {})
+            allowed_labels = ", ".join(section.get("primary_vertex_labels", []))
+            allowed_edges = ", ".join(
+                pattern["edge"] for pattern in section.get("edge_patterns", [])
+            )
+            capture_goals = "\n".join(
+                f"- {goal}" for goal in section.get("capture_goals", [])
             )
             return (
                 f"session_id: {session_id}\n"
@@ -715,6 +860,12 @@ class Extractor:
                 f"active_section_order: {context.active_section_order}\n"
                 f"active_section_id: section:{session_id}:{context.active_section_order}\n"
                 f"known_section_ids: {sections or ['(none)']}\n\n"
+                f"Active section purpose: {section.get('purpose', '')}\n"
+                f"Capture goals:\n{capture_goals or '- schema-driven'}\n"
+                f"Allowed vertex labels: {allowed_labels or 'schema-driven'}\n"
+                f"Allowed edge labels: {allowed_edges or 'schema-driven'}\n"
+                f"Section extraction instruction: "
+                f"{section.get('extractor_instruction', '')}\n\n"
                 f"Recent turns (oldest first):\n{history}\n\n"
                 f"Known vertex ids by label:\n{context.vertex_labels}\n\n"
                 f"Latest expert utterance:\n  {utterance}"
@@ -734,6 +885,58 @@ class Extractor:
             f"most_recent_headache_id (default when ambiguous): {current}\n\n"
             f"Latest patient utterance:\n  {utterance}"
         )
+
+
+def _ensure_expert_episode(
+    result: ExtractionResult,
+    *,
+    utterance: str,
+    context: RollingContext,
+) -> ExtractionResult:
+    session_id = next(
+        (
+            vertex_id
+            for vertex_id, label in context.vertex_labels.items()
+            if label == "KnowledgeSession"
+        ),
+        None,
+    )
+    if session_id is None:
+        return result
+    episode_id = f"ep:{session_id}:{max(context.episode_sequence, 1):02d}"
+    section_id = f"section:{session_id}:{context.active_section_order}"
+    episode_lit = _lit(episode_id)
+    episode = pg.Vertex(
+        label=pg.VertexLabel("TranscriptEpisode"),
+        id=episode_lit,
+        properties=FrozenDict({
+            pg.PropertyKey("verbatimText"): _lit(utterance),
+            pg.PropertyKey("speaker"): _lit("expert"),
+        }),
+    )
+    edge_id = f"{section_id}-hasEpisode->{episode_id}"
+    edge_lit = _lit(edge_id)
+    edge = pg.Edge(
+        label=pg.EdgeLabel("hasEpisode"),
+        id=edge_lit,
+        out=_lit(section_id),
+        in_=episode_lit,
+        properties=FrozenDict({}),
+    )
+    vertices = dict(result.delta.vertices)
+    edges = dict(result.delta.edges)
+    vertices[episode_lit] = episode
+    edges[edge_lit] = edge
+    return ExtractionResult(
+        delta=pg.Graph(
+            vertices=FrozenDict(vertices),
+            edges=FrozenDict(edges),
+        ),
+        new_current_headache_id=result.new_current_headache_id,
+        patient_signaled_done=result.patient_signaled_done,
+        patient_resumed=result.patient_resumed,
+        schema_gaps=result.schema_gaps,
+    )
 
 
 # -- Materialization helpers --
@@ -813,6 +1016,11 @@ def _materialize(
     new_headache_id = tool_input.get("new_current_headache_id")
     signaled_done = bool(tool_input.get("patient_signaled_done", False))
     resumed = bool(tool_input.get("patient_resumed", False))
+    schema_gaps = tuple(
+        str(item).strip()
+        for item in (tool_input.get("schema_gaps", []) or [])
+        if str(item).strip()
+    )
 
     out_vertices: dict = {}
     out_edges: dict = {}
@@ -951,12 +1159,14 @@ def _materialize(
         new_current_headache_id=next_headache_id,
         patient_signaled_done=signaled_done,
         patient_resumed=resumed,
+        schema_gaps=schema_gaps,
     )
 
 
-def _validate_provenance_contract(
+def _validate_domain_contract(
     delta: pg.Graph,
     edge_by_vertex: dict[str, str],
+    domain_name: str,
 ) -> str | None:
     if not edge_by_vertex:
         return None
@@ -972,6 +1182,17 @@ def _validate_provenance_contract(
         if vertex.label.value == "TranscriptEpisode"
     }
     for vertex in delta.vertices.values():
+        vertex_id = vertex.id.value
+        if not re.fullmatch(r"[a-z0-9][a-z0-9:-]*[a-z0-9]", vertex_id):
+            return f"vertex id {vertex_id!r} must use lowercase letters, digits, hyphens, and colons"
+        if domain_name == "hospitality" and len(vertex_id) > 80:
+            return f"hospitality vertex id {vertex_id!r} exceeds 80 characters"
+        expected_prefix = _ID_PREFIX_BY_LABEL.get(vertex.label.value)
+        if expected_prefix and not vertex_id.startswith(expected_prefix):
+            return (
+                f"{vertex.label.value} id {vertex_id!r} must start with "
+                f"{expected_prefix!r}"
+            )
         if vertex.label.value != "ProvenanceEvidence":
             continue
         source = vertex.properties.get(pg.PropertyKey("sourceEpisode"))
@@ -980,6 +1201,41 @@ def _validate_provenance_contract(
             return (
                 f"ProvenanceEvidence {vertex.id.value!r} must reference a "
                 "TranscriptEpisode emitted in the same delta"
+            )
+        trace = vertex.properties.get(pg.PropertyKey("traceText"))
+        trace_text = str(getattr(trace, "value", "")).strip().lower()
+        banned = {
+            "the expert mentioned",
+            "the doctor said",
+            "extracted from interview",
+            "see transcript",
+            "n/a",
+            "not available",
+            "unknown",
+        }
+        if domain_name == "hospitality":
+            banned.update({
+                "the expert described their approach",
+                "the owner mentioned",
+                "hospitality knowledge",
+                "the expert talked about",
+                "general hospitality principle",
+            })
+        if not trace_text or any(trace_text.startswith(item) for item in banned):
+            return f"ProvenanceEvidence {vertex_id!r} has generic traceText"
+        speaker = vertex.properties.get(pg.PropertyKey("speaker"))
+        if getattr(speaker, "value", None) not in {"expert", "interviewer", "system"}:
+            return f"ProvenanceEvidence {vertex_id!r} has invalid speaker"
+        confidence = vertex.properties.get(pg.PropertyKey("confidence"))
+        confidence_value = getattr(confidence, "value", None)
+        if confidence_value is not None and confidence_value not in {
+            "high", "medium", "low", "inferred"
+        }:
+            return f"ProvenanceEvidence {vertex_id!r} has invalid confidence"
+        if confidence_value == "inferred" and trace_text.count("ep:") < 2:
+            return (
+                f"ProvenanceEvidence {vertex_id!r} uses inferred confidence "
+                "without citing at least two episode ids"
             )
     for vertex in delta.vertices.values():
         expected = edge_by_vertex.get(vertex.label.value)
@@ -999,7 +1255,56 @@ def _validate_provenance_contract(
                 f"{expected} from {vertex.id.value!r} must target a "
                 "ProvenanceEvidence vertex emitted in the same delta"
             )
+    delta_ids = {vertex.id.value for vertex in delta.vertices.values()}
+    infrastructure_edges = {"hasSession", "hasSection", "hasEpisode"}
+    provenance_edges = set(edge_by_vertex.values())
+    for edge in edges:
+        if edge.out.value == edge.in_.value:
+            return f"edge {edge.label.value!r} must not reference itself"
+        if (
+            edge.label.value not in infrastructure_edges
+            and edge.label.value not in provenance_edges
+        ):
+            for endpoint in (edge.out.value, edge.in_.value):
+                if endpoint not in delta_ids:
+                    return (
+                        f"existing vertex {endpoint!r} is enriched by "
+                        f"{edge.label.value!r} and must be re-emitted with "
+                        "new provenance in this delta"
+                    )
+    evidence_keys: set[tuple[str, str]] = set()
+    for vertex in delta.vertices.values():
+        if vertex.label.value != "ProvenanceEvidence":
+            continue
+        source = vertex.properties.get(pg.PropertyKey("sourceEpisode"))
+        trace = vertex.properties.get(pg.PropertyKey("traceText"))
+        key = (
+            str(getattr(source, "value", "")),
+            str(getattr(trace, "value", "")).strip().lower(),
+        )
+        if key in evidence_keys:
+            return f"duplicate provenance evidence for source {key[0]!r}"
+        evidence_keys.add(key)
+    if domain_name == "hospitality":
+        for vertex in delta.vertices.values():
+            props = vertex.properties
+            if vertex.label.value == "DecisionRule":
+                text = getattr(props.get(pg.PropertyKey("ruleText")), "value", "")
+                if len(str(text).strip()) <= 20:
+                    return f"DecisionRule {vertex.id.value!r} must have specific ruleText"
+            if vertex.label.value == "OperatingHeuristic":
+                text = getattr(props.get(pg.PropertyKey("heuristic")), "value", "")
+                if len(str(text).strip()) <= 10:
+                    return f"OperatingHeuristic {vertex.id.value!r} must have specific heuristic text"
     return None
+
+
+def _validate_provenance_contract(
+    delta: pg.Graph,
+    edge_by_vertex: dict[str, str],
+) -> str | None:
+    """Backward-compatible test hook for the original provenance contract."""
+    return _validate_domain_contract(delta, edge_by_vertex, "hypertension")
 
 
 def synthesize_headache_id() -> str:

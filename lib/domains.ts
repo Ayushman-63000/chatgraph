@@ -18,6 +18,7 @@ import {
   HYPERTENSION_OPENING_LINE
 } from "./prompts";
 import type { DomainId } from "./types";
+import { interviewContract } from "./interview";
 
 export type DomainDescriptor = {
   id: DomainId;
@@ -141,7 +142,7 @@ export const DOMAIN_REGISTRY: Record<DomainId, DomainDescriptor> = {
     participantLabel: "expert",
     roleDescription: "hypertension knowledge engineer",
     composerPlaceholder: "Share your hypertension expertise",
-    openingLine: HYPERTENSION_OPENING_LINE,
+    openingLine: interviewContract("hypertension")?.openingLine ?? HYPERTENSION_OPENING_LINE,
     conversationPrompt: HYPERTENSION_AGENT_PROMPT,
     extractorPrompt: HYPERTENSION_EXTRACTOR_INTRO,
     conversationPromptPath: "lib/prompts.ts#HYPERTENSION_AGENT_PROMPT",
@@ -168,7 +169,7 @@ export const DOMAIN_REGISTRY: Record<DomainId, DomainDescriptor> = {
     participantLabel: "expert",
     roleDescription: "hospitality knowledge engineer",
     composerPlaceholder: "Share your hospitality expertise",
-    openingLine: HOSPITALITY_OPENING_LINE,
+    openingLine: interviewContract("hospitality")?.openingLine ?? HOSPITALITY_OPENING_LINE,
     conversationPrompt: HOSPITALITY_AGENT_PROMPT,
     extractorPrompt: HOSPITALITY_EXTRACTOR_INTRO,
     conversationPromptPath: "lib/prompts.ts#HOSPITALITY_AGENT_PROMPT",

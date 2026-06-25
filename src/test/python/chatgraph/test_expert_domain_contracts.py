@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import importlib.util
+from html import unescape
 from pathlib import Path
+import re
+from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -22,6 +25,16 @@ def _edge_endpoints(schema: dict) -> dict[str, tuple[str, str]]:
         )
         for entry in schema["edges"]
     }
+
+
+def _docx_text(path: Path) -> str:
+    with ZipFile(path) as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+    return unescape(re.sub(r"<[^>]+>", " ", xml))
+
+
+def _normalized_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", text.lower())).strip()
 
 
 def test_hypertension_every_knowledge_vertex_has_typed_provenance_edge() -> None:
@@ -140,6 +153,22 @@ def test_configured_artifact_paths_exist_and_prompt_roles_are_explicit() -> None
         assert (ROOT / hypertension_paths[key]).is_file()
     assert "export-only" in hospitality_paths["prompt_governance"]
     assert "export-only" in hypertension_paths["prompt_governance"]
+
+
+def test_export_docx_prompts_match_canonical_txt() -> None:
+    for txt, docx in (
+        (
+            ROOT / "hospitality/prompt Hospitality .txt",
+            ROOT / "hospitality/prompt Hospitality .docx",
+        ),
+        (
+            ROOT / "hypertension/Prompt Hypetension.txt",
+            ROOT / "hypertension/Prompt Hypetension.docx",
+        ),
+    ):
+        assert _normalized_text(txt.read_text(encoding="utf-8-sig")) == _normalized_text(
+            _docx_text(docx)
+        )
 
 
 def test_hospitality_rule_count_and_pricing_scope_are_consistent() -> None:

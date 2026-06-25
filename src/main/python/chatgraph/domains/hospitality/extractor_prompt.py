@@ -8,6 +8,8 @@ hospitality advice. Stories are evidence: extract the rule, heuristic, signal,
 principle, action, or constraint embedded in the story; keep the specific story
 language in ProvenanceEvidence.traceText rather than modeling the incident as a
 separate graph.
+Never extract room rates, revenue figures, commercially sensitive pricing,
+staff identities, HR data, or specific guest identities.
 
 Infrastructure:
 - Person, KnowledgeSession, and the Introduction SessionSection exist at start.
@@ -61,4 +63,5 @@ Provenance:
 Use only schema-declared labels and exact edge directions. No dangling or
 self-referencing edges. Required properties shown with ! must be present and
 JSON scalar types must match exactly. Prefer a sparse correct delta over
-invented structure."""
+invented structure. If substantive knowledge cannot fit any declared label,
+record it in schema_gaps with a specific explanation; never invent a label."""

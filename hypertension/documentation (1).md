@@ -489,7 +489,7 @@ A heuristic, gut-feeling rule, or pattern recognition strategy the expert uses â
 
 - | `whyItMatters` | string | No | Why this pattern improves outcomes |
 
-**ID convention:** `pattern:{name_slug}` **Example:** `pattern:young-patient-resistant-hypertensionalways-screen-secondary`
+**ID convention:** `pattern:{name_slug}` **Example:** `pattern:young-patient-resistant-hypertension-always-screen-secondary`
 
 ---
 
@@ -507,7 +507,7 @@ A common error, trap, or mistake â€” made by residents, generalists, or even spe
 
 | `howToAvoid` | string | No | The expert's recommended approach to avoid it |
 
-**ID convention:** `pitfall:{description_slug}` **Example:** `pitfall:treating-white-coat-hypertension-withmedication`
+**ID convention:** `pitfall:{description_slug}` **Example:** `pitfall:treating-white-coat-hypertension-with-medication`
 
 ---
 

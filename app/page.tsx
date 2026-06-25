@@ -81,15 +81,15 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session?.messages.length]);
 
-  async function submit(text: string) {
+  async function submit(text: string, fromRealtime = false) {
     const trimmed = text.trim();
     const currentSession = sessionRef.current;
     if (
       !trimmed ||
       !currentSession ||
       sendingRef.current ||
-      realtimeRef.current ||
-      realtimeStatus !== "idle"
+      (!fromRealtime && realtimeRef.current) ||
+      (!fromRealtime && realtimeStatus !== "idle")
     ) return;
     sendingRef.current = true;
     setInput("");
@@ -116,7 +116,9 @@ export default function Home() {
         body: JSON.stringify({
           messages: optimistic.messages,
           graph: optimistic.graph,
-          domainId: optimistic.domainId
+          domainId: optimistic.domainId,
+          interview: optimistic.interview,
+          audit: optimistic.audit
         })
       });
       if (!response.ok) throw new Error(await response.text());
@@ -125,11 +127,18 @@ export default function Home() {
       const next = {
         ...optimistic,
         graph: nextGraph,
-        messages: [...optimistic.messages, data.assistantMessage]
+        messages: [...optimistic.messages, data.assistantMessage],
+        interview: data.interview ?? optimistic.interview,
+        audit: data.audit ?? optimistic.audit
       };
       sessionRef.current = next;
       setSession(next);
-      setWarnings(data.warnings ?? []);
+      setWarnings([
+        ...(data.warnings ?? []),
+        ...(data.audit ?? []).map(
+          (finding) => `${finding.ruleId} (${finding.severity}): ${finding.message}`
+        )
+      ]);
       if (optimistic.settings.autoSpeak) {
         const voice = await speak(data.assistantMessage.content);
         if (!voice.ok && voice.error) {
@@ -190,7 +199,9 @@ export default function Home() {
           text,
           messages: baseSession.messages,
           graph: baseSession.graph,
-          domainId: baseSession.domainId
+          domainId: baseSession.domainId,
+          interview: baseSession.interview,
+          audit: baseSession.audit
         })
       });
       if (!response.ok) throw new Error(await response.text());
@@ -291,6 +302,12 @@ export default function Home() {
         },
         onError: (message) => setWarnings([message]),
         onUserTranscript: (text, sourceId) => {
+          if (sessionRef.current && sessionRef.current.domainId !== "headache") {
+            realtime.stop();
+            realtimeRef.current = null;
+            void submit(text, true);
+            return;
+          }
           const next = appendMessage("user", text, sourceId);
           if (next) void extractVoiceTurn(text, next);
         },

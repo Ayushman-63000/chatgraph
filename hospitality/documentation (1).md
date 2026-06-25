@@ -541,9 +541,10 @@ The result of a decision, recovery action, loyalty driver, or contextual overrid
 How the expert's beliefs manifest as operational rules:
 ```
 GuestExperiencePrinciple
-  ──standardEnforces── ServiceStandard
   ──appliesToPersona── GuestPersona
   ──principleSupportedBy── ProvenanceEvidence
+ServiceStandard
+  ──standardEnforces──> GuestExperiencePrinciple
 ```
 
 ### Pattern 2 — The Signal → Rule → Outcome Chain
@@ -619,7 +620,7 @@ ContextualConstraint
 |---|---|---|---|
 | Introduction | A | `Person`, `KnowledgeSession`, `SessionSection`, `TranscriptEpisode` | `hasSession`, `hasSection`, `hasEpisode` |
 | Guest Experience Principles | B | `GuestExperiencePrinciple`, `ServiceStandard`, `GuestSignal`, `GuestPersona` | `discusses`, `appliesToPersona`, `standardEnforces`, `signalIndicates`, `principleSupportedBy` |
-| Arrival, Check-In & Timing | C | `CheckInPolicy` *(singleton)*, `CheckOutPolicy` *(singleton)*, `TimingRule`, `DecisionRule` | `governs`, `governsCheckOut`, `signalTriggers`, `discussesRule`, `heuristicSupportedBy` |
+| Arrival, Check-In & Timing | C | `CheckInPolicy` *(singleton)*, `CheckOutPolicy` *(singleton)*, `TimingRule`, `DecisionRule` | `governs`, `governsCheckOut`, `signalTriggers`, `discussesRule`, `timingRuleSupportedBy` |
 | Service Recovery & Flexibility | D | `ServiceFailure`, `RecoveryAction`, `ExceptionRule`, `DecisionRule`, `Outcome` | `resolvedBy`, `recoveryLeadsTo`, `exceptionAppliesTo`, `exceptionMadeFor`, `leadsTo` |
 | Operating Heuristics & Decision Rules | E | `OperatingHeuristic`, `DecisionRule`, `GuestSignal` *(reuse)*, `GuestPersona` *(reuse)*, `Outcome` | `discussesHeuristic`, `heuristicExplains`, `heuristicSupportedBy`, `signalTriggers`, `leadsTo` |
 | Customer Psychology & Loyalty | F | `LoyaltyDriver`, `EmotionalMoment`, `GuestPersona` *(reuse)*, `Outcome` | `shapesLoyalty`, `drivenBy`, `loyaltyLeadsTo`, `appliesToPersona`, `principleSupportedBy` |

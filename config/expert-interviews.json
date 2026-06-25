@@ -1,0 +1,188 @@
+{
+  "hypertension": {
+    "openingLine": "Hi Doctor, I will conduct your knowledge session today on hypertension. The purpose of today's session is to extract explicit knowledge, tacit expertise, workflows, heuristics, rules, case reasoning, and system-level insights to build a comprehensive hypertension knowledge base. The session will be carried out in 7 sections, starting from explicit knowledge and moving to tacit knowledge, decision making, and system factors.",
+    "closingLine": "Thank you, Doctor. I will summarize what we covered. Is there anything you would like to add, correct, or expand before we conclude?",
+    "sections": [
+      {
+        "order": 1,
+        "questions": [
+          "Could you briefly confirm your specialization and experience in hypertension?",
+          "This session is only for building a knowledge base, not patient care. Are you comfortable with that?",
+          "Do you have any preferences for pacing or depth?"
+        ],
+        "minimumWords": [2, 1, 1]
+      },
+      {
+        "order": 2,
+        "questions": [
+          "How do you define hypertension in practice?",
+          "Which classifications and diagnostic thresholds do you use, and in which measurement contexts?",
+          "What subtle or overlooked signs matter?",
+          "Which symptoms meaningfully change your assessment?",
+          "Which modifiable and non-modifiable risk factors matter most?",
+          "Which comorbidities most influence management?",
+          "What are the standard evidence-based treatment algorithms?",
+          "How do major guidelines differ?",
+          "Which guidelines are most reliable in real practice?"
+        ]
+      },
+      {
+        "order": 3,
+        "questions": [
+          "Walk through your personal step-by-step diagnostic process.",
+          "What exam findings are often underestimated?",
+          "When do you screen for secondary causes?",
+          "How do you decide lifestyle only versus medication?",
+          "How do you adjust when response is unexpected?",
+          "When do you involve other specialists?",
+          "What protocol exceptions do you commonly make?"
+        ]
+      },
+      {
+        "order": 4,
+        "questions": [
+          "What gut feelings or judgment calls guide you?",
+          "What early patterns predict progression?",
+          "How do typical cases feel versus atypical?",
+          "Share memorable cases that shaped your approach.",
+          "What are the most common clinician errors?",
+          "What pitfalls do residents fall into?",
+          "What subtle cues have you learned to notice?",
+          "What habits distinguish seasoned clinicians?"
+        ]
+      },
+      {
+        "order": 5,
+        "questions": [
+          "Newly diagnosed stage one case, how would you approach it?",
+          "How does diabetes change that approach?",
+          "How do you reason through resistant hypertension?",
+          "What pitfalls occur in resistant cases?",
+          "Hypertensive emergency with organ damage, how do you manage it step by step?",
+          "How do you choose IV versus oral therapy?",
+          "Describe atypical cases needing unconventional thinking.",
+          "How do you evaluate competing hypotheses?",
+          "How do you balance guidelines with context?",
+          "How do you re-evaluate assumptions as cases evolve?"
+        ]
+      },
+      {
+        "order": 6,
+        "questions": [
+          "What key if-then rules guide decisions?",
+          "What red flags require urgent action?",
+          "What thresholds prompt hospitalization?",
+          "Walk through medication titration.",
+          "What contraindications affect drug choice?",
+          "What exceptions do you allow?",
+          "When do you intensify therapy?",
+          "When do you de-escalate?",
+          "What factors drive risk stratification?"
+        ]
+      },
+      {
+        "order": 7,
+        "questions": [
+          "How do patient preferences influence care?",
+          "How do you adapt in low-resource settings?",
+          "What psychosocial barriers affect adherence?",
+          "How do you identify likely non-compliance?",
+          "How does interdisciplinary coordination affect care?",
+          "What system-level changes would improve care?"
+        ]
+      }
+    ]
+  },
+  "hospitality": {
+    "openingLine": "Hi, I will conduct your knowledge session today on hospitality. The purpose of today's session is to extract explicit knowledge, tacit expertise, workflows, heuristics, rules, customer-experience judgment, and system-level insights from your hospitality experience. The session will be carried out in 7 sections, beginning with your background and core hospitality principles, and then moving into guest experience, arrival and departure timing, service recovery, operating heuristics, customer psychology, and broader business and system factors.",
+    "closingLine": "Thank you. I will summarize what we covered. Is there anything you would like to add, correct, or expand before we conclude?",
+    "sections": [
+      {
+        "order": 1,
+        "questions": [
+          "Could you briefly confirm your role, the type of hospitality business you run, and how long you've been operating it?",
+          "What makes your business especially successful from your perspective?",
+          "Are you comfortable that this session is only for knowledge capture, not operational advice or guest service?",
+          "Do you have any preferences for pacing, depth, or the kind of examples you want to use?"
+        ],
+        "minimumWords": [3, 3, 1, 1]
+      },
+      {
+        "order": 2,
+        "questions": [
+          "What do your guests love most about your service?",
+          "Which small details have the biggest effect on guest satisfaction?",
+          "What subtle or overlooked signs tell you whether a guest is having a good experience?",
+          "Which parts of hospitality matter most to repeat customers?",
+          "What service standards do you never compromise on?",
+          "How do you define \"excellent hospitality\" in practice?",
+          "What do guests remember most after they leave?"
+        ]
+      },
+      {
+        "order": 3,
+        "questions": [
+          "How do you decide the ideal standard check-in time for your property?",
+          "Do you usually allow early check-in when guests arrive before standard time?",
+          "What factors decide whether early check-in is granted, and when is it not?",
+          "What is the best balance between guest convenience and room readiness?",
+          "Have you found a \"sweet spot\" check-in time that guests love and also works operationally?",
+          "How do you handle guests who arrive very early and the room is not ready?",
+          "What do you do if checkout gets delayed?",
+          "Do you charge a fine, apply a late checkout fee, waive it, or handle it case by case?",
+          "What timing rules have you perfected over the years for arrivals and departures?"
+        ],
+        "minimumWords": [3, 1, 3, 3, 2, 3, 3, 2, 3]
+      },
+      {
+        "order": 4,
+        "questions": [
+          "When something goes wrong, how do you recover the guest experience?",
+          "What problems happen most often, and how do you usually handle them?",
+          "What situations call for flexibility rather than strict policy?",
+          "When do you make exceptions for a guest?",
+          "What kinds of exceptions have paid off in long-term loyalty?",
+          "How do you decide when to apologize, compensate, or simply explain?",
+          "What service recovery mistake do newer hospitality operators often make?"
+        ]
+      },
+      {
+        "order": 5,
+        "questions": [
+          "What if-then rules guide your daily hospitality decisions?",
+          "How do you judge whether a guest is likely to return?",
+          "What cues help you identify a high-value guest early?",
+          "What habits distinguish seasoned hospitality operators from average ones?",
+          "What patterns have you learned to trust over the years?",
+          "Which decisions are best handled by intuition rather than rigid process?",
+          "What are your personal rules for balancing guest happiness, staff workload, and profitability?",
+          "What timing or exception rules have you refined through experience?"
+        ]
+      },
+      {
+        "order": 6,
+        "questions": [
+          "What makes customers feel genuinely cared for?",
+          "What are the emotional moments that shape loyalty most strongly?",
+          "How do repeat guests differ from first-time guests in what they value?",
+          "What small gestures create outsized goodwill?",
+          "What kinds of experiences turn guests into advocates?",
+          "What causes guests to lose trust quickly?",
+          "What does hospitality mean to different customer types in your experience?"
+        ]
+      },
+      {
+        "order": 7,
+        "questions": [
+          "How do location, seasonality, or customer mix change your hospitality approach?",
+          "How do staffing, training, and coordination affect service quality?",
+          "What operational bottlenecks matter most in delivering good hospitality?",
+          "How do you maintain consistency across shifts or teams?",
+          "What business decisions most influence the guest experience?",
+          "What system-level changes would improve hospitality in the industry?",
+          "If you were designing a smarter hospitality system, what would it learn from your experience?"
+        ]
+      }
+    ]
+  }
+}

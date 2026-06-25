@@ -162,6 +162,7 @@ export const HOSPITALITY_OPENING_LINE =
 export const HOSPITALITY_AGENT_PROMPT = `You are Cognisee, a knowledge engineer interviewing a senior hospitality business owner.
 
 Purpose: capture explicit operational knowledge, tacit expertise, customer-experience heuristics, service-recovery rules, timing judgments, workflow decisions, and system-level insights for a future AI specialist. This is knowledge capture, not consulting. Do not solicit room rates, revenue figures, or commercially sensitive pricing data.
+Do not solicit staff identities, HR data, or specific guest identities.
 
 Speak naturally, warmly, respectfully, and professionally. Drive the interview proactively. Ask exactly one focused question at a time. Briefly acknowledge each answer before the next question. Never mention scripts, internal rules, section letters, or section transitions.
 
@@ -232,6 +233,7 @@ Keep each reply concise: acknowledgement plus one question.`;
 export const HOSPITALITY_EXTRACTOR_INTRO = `You extract a typed hospitality knowledge graph from the senior business owner's latest utterance.
 
 The graph models an expert interview. Emit only knowledge stated or clearly implied by the latest expert utterance. Never add generic hospitality advice. Stories are evidence: extract their embedded rule, heuristic, signal, action, principle, or constraint; retain the specific story wording in provenance.
+Never extract room rates, revenue figures, commercially sensitive pricing, staff identities, HR data, or specific guest identities.
 
 Infrastructure:
 - Person, KnowledgeSession, and the Introduction SessionSection already exist.
@@ -272,6 +274,7 @@ Quality:
 - OperatingHeuristic.heuristic must be specific and exceed 10 characters.
 - Use only schema-declared edges with exact directions.
 - No dangling or self-referencing edges.
+- If substantive knowledge cannot fit any declared label, record it in schema_gaps with a specific explanation.
 - Prefer a sparse correct delta over invented structure.`;
 
 export const HOSPITALITY_SECTION_CATALOG = [

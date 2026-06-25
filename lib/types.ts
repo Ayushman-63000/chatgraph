@@ -12,6 +12,31 @@ export interface ChatMessage {
   sourceId?: string;
 }
 
+export type InterviewPhase =
+  | "question"
+  | "deep_dive_offer"
+  | "deep_dive_topic"
+  | "deep_dive"
+  | "transition"
+  | "closure"
+  | "complete";
+
+export interface InterviewState {
+  sectionOrder: number;
+  questionIndex: number;
+  phase: InterviewPhase;
+  awaitingAnswer: boolean;
+  probeCount: number;
+  deepDiveTopic?: string;
+  deepDiveTurns: number;
+}
+
+export interface AuditFinding {
+  ruleId: string;
+  severity: "hard" | "soft" | "advisory";
+  message: string;
+}
+
 export interface GraphVertex {
   id: string;
   label: string;
@@ -47,16 +72,22 @@ export interface ChatSession {
   messages: ChatMessage[];
   graph: GraphState;
   settings: ClientSettings;
+  interview?: InterviewState;
+  audit: AuditFinding[];
 }
 
 export interface ChatRequest {
   domainId: DomainId;
   messages: ChatMessage[];
   graph: GraphState;
+  interview?: InterviewState;
+  audit?: AuditFinding[];
 }
 
 export interface ChatResponse {
   assistantMessage: ChatMessage;
   delta: GraphDelta;
   warnings: string[];
+  interview?: InterviewState;
+  audit?: AuditFinding[];
 }

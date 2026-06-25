@@ -5,6 +5,7 @@ import {
   nextSectionOrder
 } from "./section-state";
 import type {
+  AuditFinding,
   ChatMessage,
   DomainId,
   GraphDelta,
@@ -393,6 +394,15 @@ export function sanitizeDelta(
       warnings.push(`Dropped vertex ${id}: invalid deterministic id.`);
       continue;
     }
+    const expectedPrefix = ID_PREFIX_BY_LABEL[label];
+    if (
+      domain.validationProfile === "expert" &&
+      expectedPrefix &&
+      !id.startsWith(expectedPrefix)
+    ) {
+      warnings.push(`Dropped vertex ${id}: ${label} ids must start with ${expectedPrefix}.`);
+      continue;
+    }
     if (id.length > 80) {
       warnings.push(`Dropped vertex ${id}: id exceeds 80 characters.`);
       continue;
@@ -413,7 +423,17 @@ export function sanitizeDelta(
     }
     if (domainId === "hospitality" && label === "DecisionRule") {
       const ruleText = typeof properties.ruleText === "string" ? properties.ruleText.trim() : "";
-      if (ruleText.length <= 20) {
+      if (
+        ruleText.length <= 20 ||
+        [
+          "if condition then action",
+          "see transcript",
+          "n/a",
+          "unknown",
+          "rule about hospitality",
+          "decision rule"
+        ].includes(ruleText.toLowerCase())
+      ) {
         warnings.push(`Dropped vertex ${id}: DecisionRule.ruleText must exceed 20 characters.`);
         continue;
       }
@@ -451,7 +471,15 @@ export function sanitizeDelta(
         "unknown",
         "the expert talked about",
         "general hospitality principle"
-      ] : ["extracted from interview", "see transcript", "n/a", "not available", "unknown"];
+      ] : [
+        "the expert mentioned",
+        "the doctor said",
+        "extracted from interview",
+        "see transcript",
+        "n/a",
+        "not available",
+        "unknown"
+      ];
       if (!trace || banned.some((prefix) => trace.startsWith(prefix))) {
         warnings.push(`Dropped vertex ${id}: provenance traceText is empty or generic.`);
         continue;
@@ -472,6 +500,16 @@ export function sanitizeDelta(
         (String(properties.traceText).match(/ep:/g)?.length ?? 0) < 2
       ) {
         warnings.push(`Review: Provenance ${id} is inferred but cites fewer than 2 episode ids.`);
+      }
+    }
+    if (domainId === "hypertension" && label === "BloodPressureMeasurement") {
+      const systolic = properties.systolic;
+      const diastolic = properties.diastolic;
+      if (
+        (typeof systolic === "number" && (systolic < 60 || systolic > 300)) ||
+        (typeof diastolic === "number" && (diastolic < 30 || diastolic > 200))
+      ) {
+        warnings.push(`Review: BloodPressureMeasurement ${id} has physiologically implausible values.`);
       }
     }
     const existingIndex = vertices.findIndex((vertex) => vertex.id === id);
@@ -527,7 +565,10 @@ export function sanitizeDelta(
       warnings.push(`Dropped edge ${label}: expected ${spec.out}->${spec.in}.`);
       continue;
     }
-    const id = stringValue(item.id) || `${out}-${label}->${incoming}`;
+    const id =
+      domain.validationProfile === "expert"
+        ? `${out}-${label}->${incoming}`
+        : stringValue(item.id) || `${out}-${label}->${incoming}`;
     const unknownProperties = unknownPropertyNames(item.properties, spec.properties);
     if (unknownProperties.length) {
       warnings.push(
@@ -576,6 +617,31 @@ export function sanitizeDelta(
       .map((vertex) => vertex.id)
   );
   const seenProvenance = new Set<string>();
+  const pendingIds = new Set(vertices.map((vertex) => vertex.id));
+  const infrastructureLabels = new Set([
+    "Person",
+    "KnowledgeSession",
+    "SessionSection",
+    "TranscriptEpisode",
+    "ProvenanceEvidence"
+  ]);
+  for (const edge of edges) {
+    if (provenanceEdgeLabels.has(edge.label) || edge.label === "hasEpisode" || edge.label === "hasSection" || edge.label === "hasSession") {
+      continue;
+    }
+    for (const endpoint of [edge.out, edge.in]) {
+      const endpointLabel = labelsById.get(endpoint);
+      if (
+        endpointLabel &&
+        !infrastructureLabels.has(endpointLabel) &&
+        !pendingIds.has(endpoint)
+      ) {
+        warnings.push(
+          `${endpointLabel} ${endpoint} is enriched by ${edge.label} and must be re-emitted with provenance in this delta.`
+        );
+      }
+    }
+  }
   for (const vertex of vertices) {
     if (
       !provenanceExempt.has(vertex.label) &&
@@ -639,6 +705,154 @@ export function sanitizeDelta(
     warnings: warnings.filter((warning) => warning.startsWith("Review:")),
     errors
   };
+}
+
+export function validateSessionGraph(
+  graph: GraphState,
+  domainId: DomainId
+): AuditFinding[] {
+  if (domainId === "headache") return [];
+  const findings: AuditFinding[] = [];
+  const vertices = Object.values(graph.vertices);
+  const edges = Object.values(graph.edges);
+  const byLabel = (label: string) => vertices.filter((vertex) => vertex.label === label);
+  const edgeFrom = (id: string, labels?: string[]) =>
+    edges.filter((edge) => edge.out === id && (!labels || labels.includes(edge.label)));
+  const normalizedNames = (label: string, property: string) => {
+    const counts = new Map<string, number>();
+    for (const vertex of byLabel(label)) {
+      const value = normalizedIdentity(vertex.properties[property]);
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  for (const evidence of byLabel("ProvenanceEvidence")) {
+    const source = String(evidence.properties.sourceEpisode ?? "");
+    if (!graph.vertices[source] || graph.vertices[source].label !== "TranscriptEpisode") {
+      findings.push({
+        ruleId: domainId === "hospitality" ? "HR025" : "PV002",
+        severity: "soft",
+        message: `Provenance ${evidence.id} references missing episode ${source}.`
+      });
+    }
+  }
+
+  if (domainId === "hypertension") {
+    for (const measurement of byLabel("BloodPressureMeasurement")) {
+      const systolic = measurement.properties.systolic;
+      const diastolic = measurement.properties.diastolic;
+      if (
+        (typeof systolic === "number" && (systolic < 60 || systolic > 300)) ||
+        (typeof diastolic === "number" && (diastolic < 30 || diastolic > 200))
+      ) {
+        findings.push({
+          ruleId: "R011",
+          severity: "soft",
+          message: `Blood pressure measurement ${measurement.id} is physiologically implausible.`
+        });
+      }
+    }
+    return findings;
+  }
+
+  const sectionTypes = new Set(
+    byLabel("SessionSection").map((vertex) => String(vertex.properties.sectionType))
+  );
+  for (const [type, title] of [
+    ["introduction", "Introduction"],
+    ["guest_experience_principles", "Guest Experience Principles"],
+    ["arrival_checkin_timing", "Arrival, Check-In, and Timing"]
+  ]) {
+    if (!sectionTypes.has(type)) {
+      findings.push({
+        ruleId: "HR016",
+        severity: "soft",
+        message: `Missing required section: ${title}.`
+      });
+    }
+  }
+
+  for (const [label, ruleId] of [
+    ["GuestPersona", "HR017"],
+    ["GuestSignal", "HR018"]
+  ]) {
+    for (const [name, count] of normalizedNames(label, "name")) {
+      if (count > 1) {
+        findings.push({
+          ruleId,
+          severity: "soft",
+          message: `${count} ${label} vertices share normalized name "${name}".`
+        });
+      }
+    }
+  }
+
+  for (const [label, ruleId] of [
+    ["CheckInPolicy", "HR019"],
+    ["CheckOutPolicy", "HR020"]
+  ]) {
+    const count = byLabel(label).length;
+    if (count !== 1) {
+      findings.push({
+        ruleId,
+        severity: "soft",
+        message: `Expected exactly one ${label}; found ${count}.`
+      });
+    }
+  }
+
+  for (const failure of byLabel("ServiceFailure")) {
+    if (edgeFrom(failure.id, ["resolvedBy"]).length === 0) {
+      findings.push({
+        ruleId: "HR021",
+        severity: "advisory",
+        message: `ServiceFailure ${failure.id} has no recovery action.`
+      });
+    }
+  }
+
+  for (const rule of byLabel("DecisionRule")) {
+    const incoming = edges.some((edge) => edge.in === rule.id);
+    const outgoing = edges.some(
+      (edge) => edge.out === rule.id && edge.label !== "supportedBy"
+    );
+    if (!incoming || !outgoing) {
+      findings.push({
+        ruleId: "HR022",
+        severity: "advisory",
+        message: `DecisionRule ${rule.id} is missing incoming or causal outgoing context.`
+      });
+    }
+  }
+
+  for (const loyalty of byLabel("LoyaltyDriver")) {
+    if (edgeFrom(loyalty.id, ["drivenBy", "loyaltyLeadsTo"]).length === 0) {
+      findings.push({
+        ruleId: "HR023",
+        severity: "advisory",
+        message: `LoyaltyDriver ${loyalty.id} is not linked to a persona or outcome.`
+      });
+    }
+  }
+
+  for (const [label, minimum] of Object.entries({
+    GuestExperiencePrinciple: 3,
+    DecisionRule: 3,
+    GuestPersona: 2,
+    OperatingHeuristic: 2,
+    TimingRule: 1
+  })) {
+    const count = byLabel(label).length;
+    if (count < minimum) {
+      findings.push({
+        ruleId: "HR024",
+        severity: "advisory",
+        message: `${label} count ${count} is below expected minimum ${minimum}.`
+      });
+    }
+  }
+  return findings;
 }
 
 function filterProperties(input: unknown, allowed: Set<string>): Record<string, JsonValue> {
@@ -735,6 +949,45 @@ const IDENTITY_PROPERTY_BY_LABEL: Record<string, string> = {
   LifestyleIntervention: "name",
   ClinicalReasoningPattern: "patternName",
   Pitfall: "description"
+};
+
+const ID_PREFIX_BY_LABEL: Record<string, string> = {
+  Person: "person:",
+  KnowledgeSession: "session:",
+  SessionSection: "section:",
+  TranscriptEpisode: "ep:",
+  ProvenanceEvidence: "prov:",
+  GuestExperiencePrinciple: "principle:",
+  ServiceStandard: "standard:",
+  GuestSignal: "signal:",
+  GuestPersona: "persona:",
+  CheckInPolicy: "policy:checkin:",
+  CheckOutPolicy: "policy:checkout:",
+  TimingRule: "timing:",
+  ServiceFailure: "failure:",
+  RecoveryAction: "recovery:",
+  ExceptionRule: "exception:",
+  DecisionRule: "rule:",
+  OperatingHeuristic: "heuristic:",
+  LoyaltyDriver: "loyalty:",
+  EmotionalMoment: "moment:",
+  HypertensionConcept: "concept:",
+  BloodPressureMeasurement: "bp:",
+  DiagnosticCriterion: "criterion:",
+  ClinicalFinding: "finding:",
+  Symptom: "symptom:",
+  Comorbidity: "comorbidity:",
+  RiskFactor: "riskfactor:",
+  SecondaryCause: "secondary:",
+  DiagnosticTest: "test:",
+  Medication: "med:",
+  LifestyleIntervention: "lifestyle:",
+  FollowUpPlan: "followup:",
+  ClinicalReasoningPattern: "pattern:",
+  Pitfall: "pitfall:",
+  CaseScenario: "case:",
+  ContextualConstraint: "constraint:",
+  Outcome: "outcome:"
 };
 
 function findCanonicalVertex(

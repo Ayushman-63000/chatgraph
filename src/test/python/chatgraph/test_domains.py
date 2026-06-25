@@ -107,7 +107,7 @@ class DomainRegistryTests(unittest.TestCase):
         self.assertIn("getDomain(body.domainId)", chat_route)
         self.assertIn("extractGraphDelta(openai, latestUser.content, body)", chat_route)
         self.assertIn("getDomain(body.domainId)", extractor)
-        self.assertIn("activeSectionOrder(body.domainId, body.graph, body.messages)", extractor)
+        self.assertIn("body.interview?.sectionOrder ?? 1", extractor)
         self.assertIn("sanitizeDelta(", extractor)
         self.assertIn("sectionOrder", extractor)
         self.assertIn("schemaReference(body.domainId)", extractor)

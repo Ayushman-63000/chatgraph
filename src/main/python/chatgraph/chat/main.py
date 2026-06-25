@@ -27,6 +27,7 @@ import re
 import signal
 import sys
 import time
+from collections import deque
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
@@ -117,9 +118,14 @@ class Coordinator:
         self._extractor = extractor
         self._graph_writer = graph_writer
         self._domain = domain
-        self._rolling = RollingContext()
+        self._rolling = RollingContext(
+            window=deque(maxlen=4 if domain.name == "hospitality" else 3)
+        )
         self._extraction_lock = asyncio.Lock()
         self._sections: dict[int, dict] = {}
+        self._interview_state = None
+        self._pending_interview_reply: str | None = None
+        self._closure_audited = False
         if domain.section_map_path is not None:
             with domain.section_map_path.open(encoding="utf-8") as handle:
                 section_map = json.load(handle)
@@ -127,6 +133,10 @@ class Coordinator:
                 int(section["order"]): section
                 for section in section_map.get("sections", [])
             }
+        if domain.session_infrastructure:
+            from chatgraph.chat.interview import InterviewState
+
+            self._interview_state = InterviewState()
 
         # Agent state and the in-flight task driving it.
         self._agent_task: asyncio.Task | None = None
@@ -292,10 +302,36 @@ class Coordinator:
 
         # Phase 2: kick off graph extraction in the background. Don't
         # block the conversation; the agent reply path keeps running.
-        self._advance_section_from_reply(text)
+        extraction_section_order = self._rolling.active_section_order
+        extraction_question_index = self._rolling.active_question_index
         self._rolling.add(participant, text)
+        extraction_episode_sequence = self._rolling.episode_sequence
+        if self._domain.name == "hospitality":
+            fragment_count = len(_split_turn_at_sentence_boundary(text, 600))
+            self._rolling.episode_sequence += max(fragment_count - 1, 0)
+        if self._interview_state is not None:
+            from chatgraph.chat.interview import advance
+
+            interview_result = advance(
+                self._domain.name,
+                self._interview_state,
+                text,
+            )
+            self._interview_state = interview_result.state
+            self._pending_interview_reply = interview_result.reply
+            self._rolling.active_section_order = interview_result.state.section_order
+            self._rolling.active_question_index = interview_result.state.question_index
+        else:
+            self._advance_section_from_reply(text)
         if self._extractor is not None and self._graph_writer is not None:
-            asyncio.create_task(self._extract_and_write(text))
+            asyncio.create_task(
+                self._extract_and_write(
+                    text,
+                    extraction_section_order,
+                    extraction_question_index,
+                    extraction_episode_sequence,
+                )
+            )
 
         # Speak the prepared reply if available; otherwise generate fresh.
         prepared = self._prepared_text
@@ -304,23 +340,77 @@ class Coordinator:
         self._agent_task = None
         asyncio.create_task(self._speak_reply(prepared, agent_task, t0))
 
-    async def _extract_and_write(self, utterance: str) -> None:
+    async def _extract_and_write(
+        self,
+        utterance: str,
+        section_order: int | None = None,
+        question_index: int | None = None,
+        episode_sequence: int | None = None,
+    ) -> None:
         """Extract a graph delta from one patient utterance and write it.
 
         Fire-and-forget from the orchestrator. Logs success/failure;
         never raises.
         """
         async with self._extraction_lock:
-            await self._extract_and_write_locked(utterance)
+            current_episode_sequence = self._rolling.episode_sequence
+            chunks = (
+                _split_turn_at_sentence_boundary(utterance, 600)
+                if self._domain.name == "hospitality"
+                else [utterance]
+            )
+            base_sequence = episode_sequence or self._rolling.episode_sequence
+            for index, chunk in enumerate(chunks):
+                self._rolling.episode_sequence = base_sequence + index
+                await self._extract_and_write_locked(
+                    chunk,
+                    section_order,
+                    question_index,
+                )
+            self._rolling.episode_sequence = max(
+                current_episode_sequence,
+                base_sequence + len(chunks) - 1,
+            )
 
-    async def _extract_and_write_locked(self, utterance: str) -> None:
+    async def _extract_and_write_locked(
+        self,
+        utterance: str,
+        section_order: int | None = None,
+        question_index: int | None = None,
+    ) -> None:
         assert self._extractor is not None
+        current_order = self._rolling.active_section_order
+        current_question_index = self._rolling.active_question_index
+        extraction_order = section_order or current_order
+        self._rolling.active_section_order = extraction_order
+        if question_index is not None:
+            self._rolling.active_question_index = question_index
         await self._ensure_active_section()
         try:
             result = await self._extractor.extract(utterance, self._rolling)
         except Exception:
             log.exception("extractor: extract() raised; skipping write")
+            self._rolling.active_section_order = (
+                self._interview_state.section_order
+                if self._interview_state is not None
+                else current_order
+            )
+            self._rolling.active_question_index = (
+                self._interview_state.question_index
+                if self._interview_state is not None
+                else current_question_index
+            )
             return
+        self._rolling.active_section_order = (
+            self._interview_state.section_order
+            if self._interview_state is not None
+            else current_order
+        )
+        self._rolling.active_question_index = (
+            self._interview_state.question_index
+            if self._interview_state is not None
+            else current_question_index
+        )
         # Register any Headache vertices in this delta so subsequent
         # extractions reuse their ids rather than minting fresh ones.
         from hydra.pg.model import PropertyKey
@@ -351,6 +441,8 @@ class Coordinator:
 
         if result.new_current_headache_id:
             self._rolling.current_headache_id = result.new_current_headache_id
+        for gap in result.schema_gaps:
+            log.warning("SCHEMA_GAP [%s]: %s", self._domain.name, gap)
 
         # Session-done state machine.
         if result.patient_signaled_done and not self._rolling.session_done:
@@ -372,6 +464,32 @@ class Coordinator:
                 log.exception("extractor: atomic graph write failed")
                 return
             self._rolling.register_vertices(result.delta.vertices.values())
+            if (
+                self._interview_state is not None
+                and self._interview_state.phase in {"closure", "complete"}
+                and not self._closure_audited
+            ):
+                await self._audit_closed_session()
+
+    async def _audit_closed_session(self) -> None:
+        if self._graph_writer is None:
+            return
+        graph = await self._graph_writer.load_graph()
+        if graph is None:
+            return
+        from chatgraph.chat.contract_validation import validate_session_graph
+
+        findings = validate_session_graph(graph, self._domain.name)
+        for finding in findings:
+            level = logging.WARNING if finding.severity == "soft" else logging.INFO
+            log.log(
+                level,
+                "SESSION_AUDIT %s [%s]: %s",
+                finding.rule_id,
+                finding.severity,
+                finding.message,
+            )
+        self._closure_audited = True
 
     def _advance_section_from_reply(self, expert_text: str) -> None:
         if not self._sections:
@@ -390,14 +508,14 @@ class Coordinator:
             expert_text,
         )
 
-    async def _ensure_active_section(self) -> None:
+    async def _ensure_active_section(self, section_order: int | None = None) -> None:
         if (
             not self._domain.session_infrastructure
             or self._graph_writer is None
             or not self._sections
         ):
             return
-        order = self._rolling.active_section_order
+        order = section_order or self._rolling.active_section_order
         session_id = next(
             (
                 vertex_id
@@ -458,6 +576,67 @@ class Coordinator:
         extract from agent turns (per design); we only let the extractor
         observe them as anaphora context."""
         self._rolling.add("agent", text)
+        if self._domain.session_infrastructure and self._graph_writer is not None:
+            asyncio.create_task(
+                self._write_interviewer_episode(
+                    text,
+                    self._rolling.episode_sequence,
+                    self._rolling.active_section_order,
+                )
+            )
+
+    async def _write_interviewer_episode(
+        self,
+        text: str,
+        episode_sequence: int,
+        section_order: int,
+    ) -> None:
+        if self._graph_writer is None:
+            return
+        async with self._extraction_lock:
+            await self._ensure_active_section(section_order)
+            session_id = next(
+                (
+                    vertex_id
+                    for vertex_id, label in self._rolling.vertex_labels.items()
+                    if label == "KnowledgeSession"
+                ),
+                None,
+            )
+            if session_id is None:
+                return
+            section_id = (
+                f"section:{session_id}:{section_order}"
+            )
+            episode_id = f"ep:{session_id}:{episode_sequence:02d}"
+            import hydra.core as core
+            import hydra.pg.model as pg
+            from hydra.dsl.python import FrozenDict
+
+            episode_lit = core.LiteralString(episode_id)
+            episode = pg.Vertex(
+                label=pg.VertexLabel("TranscriptEpisode"),
+                id=episode_lit,
+                properties=FrozenDict({
+                    pg.PropertyKey("verbatimText"): core.LiteralString(text),
+                    pg.PropertyKey("speaker"): core.LiteralString("interviewer"),
+                }),
+            )
+            edge_id = f"{section_id}-hasEpisode->{episode_id}"
+            edge_lit = core.LiteralString(edge_id)
+            edge = pg.Edge(
+                label=pg.EdgeLabel("hasEpisode"),
+                id=edge_lit,
+                out=core.LiteralString(section_id),
+                in_=episode_lit,
+                properties=FrozenDict({}),
+            )
+            delta = pg.Graph(
+                vertices=FrozenDict({episode_lit: episode}),
+                edges=FrozenDict({edge_lit: edge}),
+            )
+            await self._graph_writer.write(delta)
+            self._rolling.register_vertices([episode])
 
     def seed_from_graph(self, graph) -> bool:
         """Seed RollingContext + Conversation from the existing graph.
@@ -484,6 +663,33 @@ class Coordinator:
                     section_orders.append(raw)
         if section_orders:
             self._rolling.active_section_order = max(section_orders)
+        if self._domain.session_infrastructure:
+            from chatgraph.chat.interview import replay
+
+            episodes = []
+            for vertex in graph.vertices.values():
+                if vertex.label.value != "TranscriptEpisode":
+                    continue
+                speaker = vertex.properties.get(PropertyKey("speaker"))
+                text = vertex.properties.get(PropertyKey("verbatimText"))
+                if getattr(speaker, "value", None) != "expert" or text is None:
+                    continue
+                match = re.search(r":(\d+)$", vertex.id.value)
+                sequence = int(match.group(1)) if match else 0
+                episodes.append((sequence, getattr(text, "value", "")))
+            self._interview_state = replay(
+                self._domain.name,
+                [text for _, text in sorted(episodes)],
+            )
+            self._rolling.active_section_order = self._interview_state.section_order
+            self._rolling.active_question_index = self._interview_state.question_index
+            self._rolling.episode_sequence = len(
+                [
+                    vertex
+                    for vertex in graph.vertices.values()
+                    if vertex.label.value == "TranscriptEpisode"
+                ]
+            )
 
         headaches = [
             v for v in graph.vertices.values() if v.label.value == "Headache"
@@ -569,6 +775,10 @@ class Coordinator:
         fallback = self._domain.resume_opening
         if graph is None or len(graph.vertices) == 0:
             return fallback
+        if self._domain.session_infrastructure and self._interview_state is not None:
+            from chatgraph.chat.interview import preview_reply
+
+            return f"Welcome back. {preview_reply(self._domain.name, self._interview_state)}"
         summary = self._summarize_whole_graph(graph)
         if self._domain.session_infrastructure:
             opening_system_prompt = (
@@ -702,7 +912,12 @@ class Coordinator:
                 return sentence
 
             async def _sentences() -> "AsyncIterator[str]":
-                if prepared is not None and prep_task is not None:
+                if self._pending_interview_reply is not None:
+                    fixed = self._pending_interview_reply
+                    self._pending_interview_reply = None
+                    for sentence in _split_sentences_final(fixed):
+                        yield _emit(sentence)
+                elif prepared is not None and prep_task is not None:
                     # Speculative generation already produced the full text;
                     # split it into sentences so TTS first-byte is paid on
                     # the first sentence, not the whole reply.
@@ -795,6 +1010,27 @@ class Coordinator:
 # before we treat a boundary as real.
 _SENTENCE_END = re.compile(r"([.!?])(\s+)")
 _MIN_SENTENCE_CHARS = 12
+
+
+def _split_turn_at_sentence_boundary(
+    text: str,
+    max_words: int,
+) -> list[str]:
+    if len(text.strip().split()) <= max_words:
+        return [text]
+    sentences = re.findall(r"[^.!?]+[.!?]+|[^.!?]+$", text)
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        candidate = f"{current} {sentence}".strip()
+        if current and len(candidate.split()) > max_words:
+            chunks.append(current.strip())
+            current = sentence.strip()
+        else:
+            current = candidate
+    if current:
+        chunks.append(current.strip())
+    return chunks
 
 
 def _split_sentences_buffer(buf: str) -> tuple[list[str], str]:
@@ -1193,7 +1429,15 @@ async def run() -> int:
                 # Domain-supplied opening line. For the medical domain
                 # this is the doctor-LIKE invitation; other domains
                 # have their own.
-                opening_text = domain.opening_line
+                if domain.session_infrastructure and coord._interview_state is not None:  # noqa: SLF001
+                    from chatgraph.chat.interview import current_question
+
+                    opening_text = (
+                        f"{domain.opening_line}\n\n"
+                        f"{current_question(domain.name, coord._interview_state)}"  # noqa: SLF001
+                    )
+                else:
+                    opening_text = domain.opening_line
 
             async def _opening() -> None:
                 await asyncio.sleep(0.3)

@@ -1,13 +1,9 @@
 """Conversational prompt for hypertension expert knowledge capture."""
 
-OPENING_LINE = (
-    "Hi Doctor, I will conduct your knowledge session today on hypertension. "
-    "The purpose of today's session is to extract explicit knowledge, tacit "
-    "expertise, workflows, heuristics, rules, case reasoning, and system-level "
-    "insights to build a comprehensive hypertension knowledge base. The session "
-    "will be carried out in 7 sections, starting from explicit knowledge and "
-    "moving to tacit knowledge, decision making, and system factors."
-)
+from chatgraph.chat.interview import opening_line
+
+
+OPENING_LINE = opening_line("hypertension")
 
 SYSTEM_PROMPT = """You are Cognisee, a knowledge engineer interviewing a senior
 doctor about hypertension. This is knowledge capture for a future AI specialist,

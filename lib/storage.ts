@@ -1,6 +1,11 @@
 import { emptyGraph } from "./schema";
 import { getDomain, isDomainId } from "./domains";
 import type { ChatSession, DomainId } from "./types";
+import {
+  currentInterviewQuestion,
+  initialInterviewState,
+  replayInterview
+} from "./interview";
 
 // Keep the original database name so existing hospitality sessions resume.
 const DB_NAME = "cognisee-hospitality-browser";
@@ -11,6 +16,12 @@ const SESSION_SCHEMA_VERSION = 3;
 
 export function defaultSession(domainId: DomainId = "headache"): ChatSession {
   const domain = getDomain(domainId);
+  const graph = emptyGraph(domainId);
+  const interview = initialInterviewState(domainId);
+  const openingContent = interview
+    ? `${domain.openingLine}\n\n${currentInterviewQuestion(domainId, interview)}`
+    : domain.openingLine;
+  if (interview) addOpeningEpisode(graph, openingContent);
   return {
     schemaVersion: SESSION_SCHEMA_VERSION,
     domainId,
@@ -18,15 +29,49 @@ export function defaultSession(domainId: DomainId = "headache"): ChatSession {
       {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: domain.openingLine,
+        content: openingContent,
         createdAt: Date.now()
       }
     ],
-    graph: emptyGraph(domainId),
+    graph,
     settings: {
       voiceEnabled: true,
       autoSpeak: true
+    },
+    interview,
+    audit: []
+  };
+}
+
+function addOpeningEpisode(
+  graph: ChatSession["graph"],
+  openingContent: string
+): void {
+  const session = Object.values(graph.vertices).find(
+    (vertex) => vertex.label === "KnowledgeSession"
+  );
+  const section = Object.values(graph.vertices).find(
+    (vertex) =>
+      vertex.label === "SessionSection" &&
+      Number(vertex.properties.order) === 1
+  );
+  if (!session || !section) return;
+  const episodeId = `ep:${session.id}:01`;
+  graph.vertices[episodeId] = {
+    id: episodeId,
+    label: "TranscriptEpisode",
+    properties: {
+      verbatimText: openingContent,
+      speaker: "interviewer"
     }
+  };
+  const edgeId = `${section.id}-hasEpisode->${episodeId}`;
+  graph.edges[edgeId] = {
+    id: edgeId,
+    label: "hasEpisode",
+    out: section.id,
+    in: episodeId,
+    properties: {}
   };
 }
 
@@ -41,7 +86,19 @@ export async function loadSession(): Promise<ChatSession> {
     if (value.domainId === "hospitality" && value.schemaVersion !== SESSION_SCHEMA_VERSION) {
       return migrateHospitalityIntro(value);
     }
-    return { ...value, schemaVersion: SESSION_SCHEMA_VERSION };
+    return {
+      ...value,
+      schemaVersion: SESSION_SCHEMA_VERSION,
+      interview:
+        value.interview ??
+        replayInterview(
+          value.domainId,
+          value.messages
+            .filter((message) => message.role === "user")
+            .map((message) => message.content)
+        ),
+      audit: value.audit ?? []
+    };
   }
   // Migrate sessions created by the former hospitality-only browser app.
   return migrateHospitalityIntro({ ...value, domainId: "hospitality" });
@@ -82,7 +139,9 @@ function migrateHospitalityIntro(session: ChatSession): ChatSession {
     ...session,
     schemaVersion: SESSION_SCHEMA_VERSION,
     domainId: "hospitality",
-    graph
+    graph,
+    interview: initialInterviewState("hospitality"),
+    audit: session.audit ?? []
   };
 }
 
